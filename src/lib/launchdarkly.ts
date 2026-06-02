@@ -23,8 +23,6 @@ interface LDConfig {
 const LD_API_BASE = "https://app.launchdarkly.com/api/v2";
 
 function getLDConfig(): LDConfig | null {
-  const enabled = process.env.LAUNCHDARKLY_ENABLED === "true";
-  if (!enabled) return null;
 
   const apiKey = process.env.LAUNCHDARKLY_API_KEY;
   const projectKey = process.env.LAUNCHDARKLY_PROJECT_KEY || "default";
@@ -46,9 +44,9 @@ function getLDConfig(): LDConfig | null {
 export function resolveLDContextKey(profile: {
   nbid?: string | null;
   webTrackerId?: string | null;
-  ecid?: string | null;
+  ecids?: string[] | null;
 }): string | null {
-  return profile.nbid || profile.webTrackerId || profile.ecid || null;
+  return profile.nbid || profile.webTrackerId || profile.ecids?.[0] || null;
 }
 
 /**
@@ -162,7 +160,7 @@ async function updateSegmentMembership(
  * Returns the number of successful segment updates.
  */
 export async function forwardToLaunchDarkly(
-  profile: Pick<Profile, "nbid" | "webTrackerId" | "ecid">,
+  profile: { nbid?: string | null; webTrackerId?: string | null; ecids?: string[] | null },
   segmentChanges: SegmentChange[],
 ): Promise<{ forwarded: number; failed: number }> {
   const config = getLDConfig();
@@ -212,7 +210,7 @@ export async function forwardToLaunchDarkly(
  */
 export async function batchForwardToLD(
   entries: Array<{
-    profile: Pick<Profile, "nbid" | "webTrackerId" | "ecid">;
+    profile: { nbid?: string | null; webTrackerId?: string | null; ecids?: string[] | null };
     segmentChanges: SegmentChange[];
   }>,
 ): Promise<{ totalForwarded: number; totalFailed: number }> {
@@ -241,9 +239,21 @@ export async function batchForwardToLD(
   return { totalForwarded, totalFailed };
 }
 
+import { getLDClient } from "./ld-client";
+
 /**
  * Check if LaunchDarkly forwarding is enabled.
+ * Evaluates the `aep-forwarding-enabled` feature flag using the Server SDK.
  */
-export function isLDEnabled(): boolean {
-  return process.env.LAUNCHDARKLY_ENABLED === "true" && !!process.env.LAUNCHDARKLY_API_KEY;
+export async function isLDEnabled(): Promise<boolean> {
+  const client = await getLDClient();
+  if (!client) {
+    // Fallback if SDK is not configured
+    return false;
+  }
+
+  const context = { kind: "system", key: "aep-backend" };
+  const flagValue = await client.variation("aep-forwarding-enabled", context, false);
+  
+  return flagValue;
 }

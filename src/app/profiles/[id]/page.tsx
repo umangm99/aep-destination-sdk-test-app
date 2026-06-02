@@ -74,7 +74,9 @@ export default async function ProfileDetailPage({
             {profile.cifhash && <IdentityTag label="CIFHash" value={profile.cifhash} />}
             {profile.cif && <IdentityTag label="CIF" value={profile.cif} />}
             {profile.webTrackerId && <IdentityTag label="WebTrackerID" value={profile.webTrackerId} />}
-            {profile.ecid && <IdentityTag label="ECID" value={profile.ecid} />}
+            {profile.ecids?.map((ecid, i) => (
+              <IdentityTag key={`ecid-${i}`} label="ECID" value={ecid} />
+            ))}
           </div>
         </div>
 

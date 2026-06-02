@@ -34,7 +34,7 @@ export default async function SegmentDetailPage({
       nbid: profiles.nbid,
       cifhash: profiles.cifhash,
       webTrackerId: profiles.webTrackerId,
-      ecid: profiles.ecid,
+      ecids: profiles.ecids,
       isAuthenticated: profiles.isAuthenticated,
       status: profileSegments.status,
       lastQualificationTime: profileSegments.lastQualificationTime,
@@ -111,9 +111,9 @@ export default async function SegmentDetailPage({
                         <IdentityTag label="NBID" value={m.nbid} />
                       ) : m.webTrackerId ? (
                         <IdentityTag label="WTID" value={m.webTrackerId} />
-                      ) : (
-                        <IdentityTag label="ECID" value={m.ecid} />
-                      )}
+                      ) : m.ecids.length > 0 ? (
+                        <IdentityTag label="ECID" value={m.ecids[0]} />
+                      ) : null}
                     </td>
                     <td><AuthBadge isAuthenticated={m.isAuthenticated} /></td>
                     <td>{m.lastQualificationTime ? new Date(m.lastQualificationTime).toLocaleString() : '-'}</td>
