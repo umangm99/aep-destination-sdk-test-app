@@ -59,7 +59,7 @@ export async function GET() {
       totalSegments: totalSegments.total,
       eventsLastHour: recentEvents.total,
       ldForwardedEvents: ldForwardedEvents.total,
-      ldEnabled: isLDEnabled(),
+      ldEnabled: await isLDEnabled(),
       authenticatedProfiles: authenticatedProfiles.total,
       unauthenticatedProfiles: totalProfiles.total - authenticatedProfiles.total,
       realizedMemberships: realizedMemberships.total,

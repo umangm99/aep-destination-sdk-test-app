@@ -34,24 +34,37 @@ export interface AEPProfile {
 
 /**
  * Extract identity values from AEP identity map.
- * AEP sends identities as arrays — we take the first value.
+ * AEP sends identities as arrays — we take the first value for unique IDs, and all values for ECID.
  */
 function extractIdentities(identities: Record<string, string[]>) {
-  const get = (key: string): string | null => {
-    // Case-insensitive lookup
+  const getFirst = (key: string): string | null => {
     const entry = Object.entries(identities).find(
       ([k]) => k.toLowerCase() === key.toLowerCase(),
     );
     return entry?.[1]?.[0] || null;
   };
+  
+  const getAll = (key: string): string[] => {
+    const entry = Object.entries(identities).find(
+      ([k]) => k.toLowerCase() === key.toLowerCase(),
+    );
+    return entry?.[1] || [];
+  };
 
   return {
-    nbid: get("NBID"),
-    cifhash: get("CIFHash"),
-    cif: get("CIF"),
-    webTrackerId: get("WebTrackerID"),
-    ecid: get("ECID"),
+    nbid: getFirst("NBID"),
+    cifhash: getFirst("CIFHash"),
+    cif: getFirst("CIF"),
+    webTrackerId: getFirst("WebTrackerID"),
+    ecids: getAll("ECID"),
   };
+}
+
+/**
+ * Helper to merge incoming ECIDs with existing ECIDs cleanly.
+ */
+function mergeEcids(existing: string[] | null | undefined, incoming: string[]): string[] {
+  return Array.from(new Set([...(existing || []), ...incoming]));
 }
 
 /**
@@ -71,7 +84,7 @@ async function resolveProfile(
   // 1. Try to match by NBID (primary for authenticated)
   if (identities.nbid) {
     const existing = await database
-      .select({ id: profiles.id })
+      .select({ id: profiles.id, ecids: profiles.ecids })
       .from(profiles)
       .where(eq(profiles.nbid, identities.nbid))
       .limit(1);
@@ -84,7 +97,7 @@ async function resolveProfile(
           cifhash: identities.cifhash || undefined,
           cif: identities.cif || undefined,
           webTrackerId: identities.webTrackerId || undefined,
-          ecid: identities.ecid || undefined,
+          ecids: mergeEcids(existing[0].ecids, identities.ecids),
           isAuthenticated: true,
           rawIdentities: rawIdentitiesJson,
           lastSeenAt: now,
@@ -102,7 +115,7 @@ async function resolveProfile(
         cifhash: identities.cifhash,
         cif: identities.cif,
         webTrackerId: identities.webTrackerId,
-        ecid: identities.ecid,
+        ecids: identities.ecids,
         isAuthenticated: true,
         rawIdentities: rawIdentitiesJson,
         firstSeenAt: now,
@@ -136,7 +149,7 @@ async function resolveProfile(
     if (mapping.length > 0) {
       // Found mapping, look up profile by NBID
       const existing = await database
-        .select({ id: profiles.id })
+        .select({ id: profiles.id, ecids: profiles.ecids })
         .from(profiles)
         .where(eq(profiles.nbid, mapping[0].nbid))
         .limit(1);
@@ -146,7 +159,7 @@ async function resolveProfile(
           .update(profiles)
           .set({
             webTrackerId: identities.webTrackerId || undefined,
-            ecid: identities.ecid || undefined,
+            ecids: mergeEcids(existing[0].ecids, identities.ecids),
             rawIdentities: rawIdentitiesJson,
             lastSeenAt: now,
           })
@@ -158,7 +171,7 @@ async function resolveProfile(
 
     // No mapping found — try matching by cifhash directly on profile
     const existing = await database
-      .select({ id: profiles.id })
+      .select({ id: profiles.id, ecids: profiles.ecids })
       .from(profiles)
       .where(eq(profiles.cifhash, identities.cifhash))
       .limit(1);
@@ -169,7 +182,7 @@ async function resolveProfile(
         .set({
           cif: identities.cif || undefined,
           webTrackerId: identities.webTrackerId || undefined,
-          ecid: identities.ecid || undefined,
+          ecids: mergeEcids(existing[0].ecids, identities.ecids),
           rawIdentities: rawIdentitiesJson,
           lastSeenAt: now,
         })
@@ -185,7 +198,7 @@ async function resolveProfile(
         cifhash: identities.cifhash,
         cif: identities.cif,
         webTrackerId: identities.webTrackerId,
-        ecid: identities.ecid,
+        ecids: identities.ecids,
         isAuthenticated: true,
         rawIdentities: rawIdentitiesJson,
         firstSeenAt: now,
@@ -199,7 +212,7 @@ async function resolveProfile(
   // 3. Try to match by WebTrackerID (unique per customer)
   if (identities.webTrackerId) {
     const existing = await database
-      .select({ id: profiles.id })
+      .select({ id: profiles.id, ecids: profiles.ecids })
       .from(profiles)
       .where(eq(profiles.webTrackerId, identities.webTrackerId))
       .limit(1);
@@ -208,7 +221,7 @@ async function resolveProfile(
       await database
         .update(profiles)
         .set({
-          ecid: identities.ecid || undefined,
+          ecids: mergeEcids(existing[0].ecids, identities.ecids),
           rawIdentities: rawIdentitiesJson,
           lastSeenAt: now,
         })
@@ -222,7 +235,7 @@ async function resolveProfile(
       .insert(profiles)
       .values({
         webTrackerId: identities.webTrackerId,
-        ecid: identities.ecid,
+        ecids: identities.ecids,
         isAuthenticated: false,
         rawIdentities: rawIdentitiesJson,
         firstSeenAt: now,
@@ -237,7 +250,7 @@ async function resolveProfile(
   const [newProfile] = await database
     .insert(profiles)
     .values({
-      ecid: identities.ecid,
+      ecids: identities.ecids,
       isAuthenticated: false,
       rawIdentities: rawIdentitiesJson,
       firstSeenAt: now,
@@ -344,7 +357,7 @@ async function updateSegmentCounts() {
 export interface LDForwardingTask {
   eventId: number;
   entries: Array<{
-    profile: { nbid: string | null; webTrackerId: string | null; ecid: string | null };
+    profile: { nbid: string | null; webTrackerId: string | null; ecids: string[] };
     segmentChanges: Array<{
       segmentId: string;
       segmentName?: string;
@@ -374,7 +387,7 @@ export async function processAEPEvent(
   sourceIp?: string,
 ): Promise<ProcessingResult> {
   const database = db();
-  const ldEnabled = isLDEnabled();
+  const ldEnabled = await isLDEnabled();
 
   // 1. Store raw event
   const [rawEvent] = await database
@@ -425,7 +438,7 @@ export async function processAEPEvent(
         profile: {
           nbid: identities.nbid,
           webTrackerId: identities.webTrackerId,
-          ecid: identities.ecid,
+          ecids: identities.ecids,
         },
         segmentChanges,
       });

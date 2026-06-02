@@ -49,7 +49,7 @@ export async function GET(
             cifhash: profiles.cifhash,
             cif: profiles.cif,
             webTrackerId: profiles.webTrackerId,
-            ecid: profiles.ecid,
+            ecids: profiles.ecids,
             isAuthenticated: profiles.isAuthenticated,
             status: profileSegments.status,
             lastQualificationTime: profileSegments.lastQualificationTime,
