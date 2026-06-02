@@ -1,0 +1,123 @@
+/* Stat Card */
+.stat-card {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.stat-title {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.stat-icon {
+  color: var(--accent-primary);
+  opacity: 0.8;
+}
+
+.stat-value {
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.stat-subtitle {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Badges */
+.segment-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.segment-badge.realized {
+  background: var(--status-realized-bg);
+  color: var(--status-realized);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+.segment-badge.realized .badge-dot {
+  background: var(--status-realized);
+}
+
+.segment-badge.exited {
+  background: var(--status-exited-bg);
+  color: var(--status-exited);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+.segment-badge.exited .badge-dot {
+  background: var(--status-exited);
+}
+
+.auth-badge {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.auth-badge.authed {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60A5FA;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.auth-badge.anon {
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--text-secondary);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+/* Identity Tag */
+.identity-tag {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  overflow: hidden;
+  font-size: 0.8rem;
+  max-width: 100%;
+}
+
+.id-label {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 4px 8px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  border-right: 1px solid var(--border-light);
+}
+
+.id-value {
+  padding: 4px 8px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

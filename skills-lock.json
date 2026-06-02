@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "skills": {
+    "launchdarkly-flag-cleanup": {
+      "source": "launchdarkly/ai-tooling",
+      "sourceType": "github",
+      "skillPath": "skills/feature-flags/launchdarkly-flag-cleanup/SKILL.md",
+      "computedHash": "1d9441c14ec7e3c5d39508afcc0bade5d546d8ac6a322636ab3f637005d6f6e5"
+    },
+    "launchdarkly-flag-create": {
+      "source": "launchdarkly/ai-tooling",
+      "sourceType": "github",
+      "skillPath": "skills/feature-flags/launchdarkly-flag-create/SKILL.md",
+      "computedHash": "ff89aae8c9581f88ce9bf233f107f1f7cb4a6ea6502885b11bfe2e735442bb67"
+    },
+    "launchdarkly-flag-discovery": {
+      "source": "launchdarkly/ai-tooling",
+      "sourceType": "github",
+      "skillPath": "skills/feature-flags/launchdarkly-flag-discovery/SKILL.md",
+      "computedHash": "4a539fa2ab8077ed1a6b0841f7b02e1889641da3b9b278a0a4353d854009728e"
+    },
+    "launchdarkly-flag-targeting": {
+      "source": "launchdarkly/ai-tooling",
+      "sourceType": "github",
+      "skillPath": "skills/feature-flags/launchdarkly-flag-targeting/SKILL.md",
+      "computedHash": "f303b45763c67f2dd907aaba90f5f10bbcb3c33ec1aed00c3b6259d5a4302472"
+    },
+    "onboarding": {
+      "source": "launchdarkly/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/onboarding/SKILL.md",
+      "computedHash": "3407d37031c1104f293b1383b5ba446b4348f43ae9cbc8f0b728a4158fa271cf"
+    }
+  }
+}
