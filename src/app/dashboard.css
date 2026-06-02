@@ -1,0 +1,144 @@
+.page-container {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.page-title {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  background: linear-gradient(to right, #fff, var(--text-muted));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.page-subtitle {
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+}
+
+.status-pill {
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.status-pill.active {
+  background: rgba(16, 185, 129, 0.1);
+  color: #34D399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.status-pill.inactive {
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--text-secondary);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 24px;
+}
+
+.dashboard-content {
+  margin-top: 16px;
+}
+
+.main-panel {
+  padding: 32px;
+}
+
+.panel-header h3 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 32px;
+}
+
+/* Custom CSS Architecture Diagram */
+.arch-diagram {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 0;
+}
+
+.node {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-focus);
+  padding: 16px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  text-align: center;
+  min-width: 220px;
+  position: relative;
+  z-index: 2;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.node.api { border-color: var(--accent-primary); box-shadow: 0 0 20px var(--accent-glow); }
+.node.db { border-color: #10B981; }
+.node.ld { border-color: #8B5CF6; }
+
+.node .subtext {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 400;
+  margin-top: 4px;
+}
+
+.edge {
+  width: 2px;
+  height: 40px;
+  background: var(--border-focus);
+  position: relative;
+}
+
+.edge::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: -4px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid var(--border-focus);
+}
+
+.split {
+  display: flex;
+  gap: 60px;
+  position: relative;
+}
+
+.split::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 25%;
+  right: 25%;
+  height: 2px;
+  background: var(--border-focus);
+}
+
+.branch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.branch .edge.vertical {
+  height: 30px;
+}
