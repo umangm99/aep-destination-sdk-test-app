@@ -25,6 +25,7 @@ export const config = {
     // - _next/image (image optimization files)
     // - favicon.ico (favicon file)
     // - /api/aep/ (handled by route handlers directly for logging)
-    "/((?!_next/static|_next/image|favicon.ico|api/aep/).*)",
+    // - /api/cron/ (handled by route handler via bearer token)
+    "/((?!_next/static|_next/image|favicon.ico|api/aep/|api/cron/).*)",
   ],
 };
