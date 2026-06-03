@@ -1,15 +1,24 @@
 # AEP Destination SDK Test App
 
-A Next.js application designed to receive, process, and visualize audience segment events from Adobe Experience Platform (AEP) in real time. It acts as a Custom Destination.
+A Next.js application designed to receive, process, and visualize audience segment events and metadata from Adobe Experience Platform (AEP) in real time. It acts as a Custom Destination via the Destination SDK and syncs AEP segment memberships directly to LaunchDarkly for real-time personalization and experimentation.
 
-## Features
+## Core Capabilities
 
+- **Realtime AEP Webhook Receiver**: Secure POST endpoints (`/api/aep/events` and `/api/aep/metadata`) with Basic Authentication designed to handle AEP's "Best Effort" streaming aggregation.
+- **Advanced Identity Resolution**: Extracts `CIFHash`, `WebTrackerID`, and `ECID` from AEP payloads, automatically resolving them to core application identities (like `NBID`) across authenticated and unauthenticated states.
+- **Audience Metadata Sync**: Automatically ingests AEP segment metadata mapping, storing human-readable segment names instead of raw UUIDs.
+- **LaunchDarkly Forwarding**: Forwards segment memberships and metadata updates to LaunchDarkly using Vercel background tasks (`next/server after()`) to ensure the webhook responses are instant.
 - **Realtime Dashboard**: View incoming events, active profiles, and segment metrics instantly.
-- **Advanced Identity Resolution**: Automatically maps `nbid`, `cifhash`, `cif`, `webTrackerId`, and `ecid` across authenticated and unauthenticated states.
-- **AEP Webhook Receiver**: Secure POST endpoint with Basic Authentication.
-- **LaunchDarkly Forwarding**: (Optional) Forwards segment memberships to LaunchDarkly for external experimentation using Vercel background tasks (`next/server after()`).
 
-## Architecture
+## Architecture & Data Flow
+
+1. **AEP Qualifies a User**: A user qualifies for a segment in AEP.
+2. **Profile Streaming**: AEP immediately streams a webhook payload to `/api/aep/events` containing the segment UUIDs and user identities.
+3. **Database Upsert**: The app resolves the identity graph (merging ECIDs with NBIDs/CIFs) and updates the local Postgres database.
+4. **LaunchDarkly Sync**: In the background, the app uses LaunchDarkly's REST API to add/remove the user from the corresponding LD segment using their `NBID` or `WebTrackerID` as the context key.
+5. **Metadata Sync**: When audiences are mapped in AEP, AEP pushes the human-readable names to `/api/aep/metadata`, which updates the local DB and sends a JSON patch to rename the segment in LaunchDarkly.
+
+## Tech Stack
 
 - **Framework**: Next.js 16 (App Router)
 - **Database**: Neon Postgres (Serverless) + Drizzle ORM
@@ -41,7 +50,7 @@ A Next.js application designed to receive, process, and visualize audience segme
    npm run dev
    ```
 
-## AEP Configuration
+## AEP Configuration & Setup
 
-To configure AEP to send data to this application, please refer to the detailed guide:
-👉 [AEP Setup Guide](./docs/aep-setup.md)
+To configure AEP to send streaming profiles and audience metadata to this application via the Destination SDK, please refer to the detailed guide:
+👉 [AEP Destination SDK Setup Guide](./docs/aep-destination-sdk-setup-guide.md)
