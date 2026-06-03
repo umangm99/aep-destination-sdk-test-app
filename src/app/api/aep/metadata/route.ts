@@ -72,6 +72,7 @@ export async function POST(request: Request) {
     return Response.json({
       success: true,
       segments: payload.segments,
+      id: payload.segments[0].id,
       message: `Metadata ${action} received. Syncing to database and LaunchDarkly in the background.`
     });
   } catch (error) {
