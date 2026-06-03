@@ -62,7 +62,8 @@ function sanitizeSegmentKey(segmentId: string): string {
 async function ensureLDSegment(
   config: LDConfig,
   segmentKey: string,
-  segmentName?: string,
+  segmentName: string,
+  description?: string,
 ): Promise<boolean> {
   const url = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}/${segmentKey}`;
 
@@ -87,7 +88,7 @@ async function ensureLDSegment(
       body: JSON.stringify({
         key: segmentKey,
         name: segmentName || segmentKey,
-        description: `Auto-created from AEP segment: ${segmentName || segmentKey}`,
+        description: description ? `${description} (Auto-synced from AEP)` : `Auto-created from AEP segment: ${segmentName || segmentKey}`,
         tags: ["aep-sync"],
       }),
     });
@@ -166,20 +167,17 @@ export async function updateLDSegmentName(
 
   const descToSet = description ? `${description} (Auto-synced from AEP)` : `Auto-synced from AEP: ${segmentName}`;
 
-  // Use JSON Patch to replace name and description
+  // Use standard JSON Patch to replace name and description
   const res = await fetch(url, {
     method: "PATCH",
     headers: {
       Authorization: config.apiKey,
-      "Content-Type": "application/json; domain-model=launchdarkly.semanticpatch",
+      "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      instructions: [
-        { kind: "replace", path: "/name", value: segmentName },
-        { kind: "replace", path: "/description", value: descToSet },
-      ],
-      comment: `AEP sync: updated segment name and description`,
-    }),
+    body: JSON.stringify([
+      { op: "replace", path: "/name", value: segmentName },
+      { op: "replace", path: "/description", value: descToSet },
+    ]),
   });
 
   if (res.ok) {
@@ -187,9 +185,9 @@ export async function updateLDSegmentName(
     return true;
   }
 
-  // If 404, it might not exist yet; ensure it exists with the new name
+  // If 404, it might not exist yet; ensure it exists with the new name and description
   if (res.status === 404) {
-    return ensureLDSegment(config, segmentKey, segmentName);
+    return ensureLDSegment(config, segmentKey, segmentName, description);
   }
 
   const error = await res.text();
