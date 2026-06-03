@@ -10,12 +10,17 @@ export async function GET(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
 
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    console.warn("[Cron] Unauthorized attempt to trigger ld-sync.");
     return new NextResponse("Unauthorized", { status: 401 });
   }
+
+  console.log(`[Cron] Triggered ld-sync at ${new Date().toISOString()}`);
 
   try {
     // Process up to 25 events per cron run.
     const result = await processPendingLDEvents(25);
+
+    console.log(`[Cron] Execution complete. Processed: ${result.processed}, Errors: ${result.errors}`);
 
     return NextResponse.json({
       success: true,

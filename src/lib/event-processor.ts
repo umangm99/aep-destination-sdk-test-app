@@ -449,6 +449,13 @@ export async function processPendingLDEvents(limit = 50) {
     .orderBy(rawEvents.receivedAt)
     .limit(limit);
 
+  if (pendingEvents.length > 0) {
+    console.log(`[Event Processor] Found ${pendingEvents.length} pending events. Starting processing...`);
+  } else {
+    console.log(`[Event Processor] No pending events to process.`);
+    return { processed: 0, errors: 0 };
+  }
+
   let processedCount = 0;
   let errorCount = 0;
 
@@ -531,6 +538,7 @@ export async function processPendingLDEvents(limit = 50) {
       }
 
       if (ldEntries.length > 0) {
+        console.log(`[Event Processor] Event ${event.id}: Forwarding to LD...`);
         const { totalFailed } = await batchForwardToLD(ldEntries);
         
         // Mark event as LD forwarded if completely successful
@@ -540,16 +548,19 @@ export async function processPendingLDEvents(limit = 50) {
             .set({ ldForwarded: true })
             .where(eq(rawEvents.id, event.id));
           processedCount++;
+          console.log(`[Event Processor] Event ${event.id}: Successfully synced to LD and marked as forwarded.`);
         } else {
           errorCount++;
+          console.error(`[Event Processor] Event ${event.id}: Failed to sync some or all segments to LD.`);
         }
       } else {
-        // Nothing to forward (e.g. all stale), mark as done
+        // Nothing to forward, mark as done
         await database
           .update(rawEvents)
           .set({ ldForwarded: true })
           .where(eq(rawEvents.id, event.id));
         processedCount++;
+        console.log(`[Event Processor] Event ${event.id}: No valid segment changes to sync. Marked as forwarded.`);
       }
 
       // Add a 2-second delay between processing events to pace outbound traffic

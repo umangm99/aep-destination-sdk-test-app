@@ -303,7 +303,10 @@ export async function batchForwardToLD(
   const chunkSize = 15;
   const results: PromiseSettledResult<{ forwarded: number }>[] = [];
 
+  console.log(`[LaunchDarkly Sync] Processing ${segmentEntries.length} unique segments in chunks of ${chunkSize}...`);
+
   for (let i = 0; i < segmentEntries.length; i += chunkSize) {
+    console.log(`[LaunchDarkly Sync] Processing chunk ${Math.floor(i / chunkSize) + 1} of ${Math.ceil(segmentEntries.length / chunkSize)}...`);
     const chunk = segmentEntries.slice(i, i + chunkSize);
     
     const chunkResults = await Promise.allSettled(
@@ -374,10 +377,12 @@ export async function batchForwardToLD(
     if (result.status === "fulfilled") {
       totalForwarded += result.value.forwarded;
     } else {
-      console.error(result.reason);
+      console.error(`[LaunchDarkly Sync] Failed segment update:`, result.reason);
       totalFailed += profileCount;
     }
   }
+
+  console.log(`[LaunchDarkly Sync] Batch complete. Total Forwarded: ${totalForwarded}, Total Failed: ${totalFailed}`);
 
   return { totalForwarded, totalFailed };
 }
