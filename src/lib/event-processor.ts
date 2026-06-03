@@ -11,7 +11,7 @@ import {
   segments,
   profileSegments,
 } from "@/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, inArray } from "drizzle-orm";
 import { batchForwardToLD, isLDEnabled } from "./launchdarkly";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -459,10 +459,13 @@ export async function processPendingLDEvents(limit = 50) {
   let processedCount = 0;
   let errorCount = 0;
 
+  const allLDEntries: LDForwardingTask["entries"] = [];
+  const eventsWithLDEntries: number[] = [];
+
   for (const event of pendingEvents) {
     try {
       const payload = event.payload as unknown as AEPPayload;
-      const ldEntries: LDForwardingTask["entries"] = [];
+      const eventLDEntries: LDForwardingTask["entries"] = [];
 
       for (const aepProfile of payload.profiles || []) {
         const identities = extractIdentities(aepProfile.identities || {});
@@ -527,7 +530,7 @@ export async function processPendingLDEvents(limit = 50) {
         }
 
         if (segmentChanges.length > 0) {
-          ldEntries.push({
+          eventLDEntries.push({
             profile: {
               nbid: resolvedProfile.nbid,
               webTrackerId: resolvedProfile.webTrackerId,
@@ -537,24 +540,11 @@ export async function processPendingLDEvents(limit = 50) {
         }
       }
 
-      if (ldEntries.length > 0) {
-        console.log(`[Event Processor] Event ${event.id}: Forwarding to LD...`);
-        const { totalFailed } = await batchForwardToLD(ldEntries);
-        
-        // Mark event as LD forwarded if completely successful
-        if (totalFailed === 0) {
-          await database
-            .update(rawEvents)
-            .set({ ldForwarded: true })
-            .where(eq(rawEvents.id, event.id));
-          processedCount++;
-          console.log(`[Event Processor] Event ${event.id}: Successfully synced to LD and marked as forwarded.`);
-        } else {
-          errorCount++;
-          console.error(`[Event Processor] Event ${event.id}: Failed to sync some or all segments to LD.`);
-        }
+      if (eventLDEntries.length > 0) {
+        allLDEntries.push(...eventLDEntries);
+        eventsWithLDEntries.push(event.id);
       } else {
-        // Nothing to forward, mark as done
+        // Nothing to forward, mark as done immediately
         await database
           .update(rawEvents)
           .set({ ldForwarded: true })
@@ -563,12 +553,29 @@ export async function processPendingLDEvents(limit = 50) {
         console.log(`[Event Processor] Event ${event.id}: No valid segment changes to sync. Marked as forwarded.`);
       }
 
-      // Add a 2-second delay between processing events to pace outbound traffic
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      
     } catch (err) {
       console.error(`Error processing pending event ${event.id}:`, err);
       errorCount++;
+    }
+  }
+
+  // Now forward ALL collected entries in a single batch operation
+  if (allLDEntries.length > 0) {
+    console.log(`[Event Processor] Forwarding ${allLDEntries.length} LD entries across ${eventsWithLDEntries.length} events...`);
+    const { totalFailed } = await batchForwardToLD(allLDEntries);
+    
+    if (totalFailed === 0) {
+      // Mark all successful events as forwarded
+      await database
+        .update(rawEvents)
+        .set({ ldForwarded: true })
+        .where(inArray(rawEvents.id, eventsWithLDEntries));
+      processedCount += eventsWithLDEntries.length;
+      console.log(`[Event Processor] Successfully synced and marked ${eventsWithLDEntries.length} events as forwarded.`);
+    } else {
+      // If there are failures, we leave them in the queue to be retried
+      errorCount += eventsWithLDEntries.length;
+      console.error(`[Event Processor] Failed to sync some segments to LD. Leaving ${eventsWithLDEntries.length} events in queue for retry.`);
     }
   }
 

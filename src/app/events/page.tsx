@@ -7,7 +7,7 @@ interface EventFeedItem {
   id: number;
   profilesCount: number;
   ldForwarded: boolean;
-  createdAt: string;
+  receivedAt: string;
   sourceIp: string | null;
   payload: any;
 }
@@ -66,7 +66,7 @@ export default function EventsPage() {
                     <tr key={e.id} 
                         style={{ cursor: 'pointer', background: selectedPayload === e.payload ? 'rgba(255,255,255,0.05)' : 'transparent' }}
                         onClick={() => setSelectedPayload(e.payload)}>
-                      <td style={{ whiteSpace: 'nowrap' }}>{new Date(e.createdAt).toLocaleTimeString()}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>{new Date(e.receivedAt).toLocaleTimeString()}</td>
                       <td><strong>{e.profilesCount}</strong></td>
                       <td>
                         <div className={`badge-dot ${e.ldForwarded ? 'realized' : 'exited'}`} 

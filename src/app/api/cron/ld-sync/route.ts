@@ -1,5 +1,6 @@
 import { processPendingLDEvents } from "@/lib/event-processor";
 import { NextResponse } from "next/server";
+import { after } from "next/server";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // Allow function to run for up to 60 seconds (Hobby limit)
@@ -18,16 +19,20 @@ export async function GET(request: Request) {
   console.log(`[Cron] Triggered ld-sync at ${new Date().toISOString()}`);
 
   try {
-    // Process up to 25 events per cron run.
-    const result = await processPendingLDEvents(25);
+    // Push the processing to the background so the endpoint returns immediately
+    after(async () => {
+      try {
+        const result = await processPendingLDEvents(25);
+        console.log(`[Cron] Execution complete. Processed: ${result.processed}, Errors: ${result.errors}`);
+      } catch (err) {
+        console.error("[Cron] Background task failed:", err);
+      }
+    });
 
-    console.log(`[Cron] Execution complete. Processed: ${result.processed}, Errors: ${result.errors}`);
-
+    // Return a 200 OK immediately to the cron scheduler
     return NextResponse.json({
       success: true,
-      processed: result.processed,
-      errors: result.errors,
-      message: "Cron execution successful",
+      message: "Cron execution queued in the background.",
     });
   } catch (error) {
     console.error("Error executing cron ld-sync:", error);
