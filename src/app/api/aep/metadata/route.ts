@@ -20,7 +20,7 @@ interface AepMetadataPayload {
 
 export async function POST(request: Request) {
   const rawBody = await request.text();
-  
+
   // Log the incoming request to Vercel for debugging AEP payloads
   console.log(`[AEP Metadata] Incoming POST request`);
   console.log(`[AEP Metadata] Headers:`, Object.fromEntries(request.headers.entries()));
@@ -71,6 +71,7 @@ export async function POST(request: Request) {
 
     return Response.json({
       success: true,
+      segments: payload.segments,
       message: `Metadata ${action} received. Syncing to database and LaunchDarkly in the background.`
     });
   } catch (error) {
