@@ -199,6 +199,41 @@ export async function updateLDSegmentName(
 }
 
 /**
+ * Delete a segment from LaunchDarkly.
+ * Called when an audience is unmapped from the destination in AEP.
+ */
+export async function deleteLDSegment(
+  segmentKey: string,
+): Promise<boolean> {
+  const config = getLDConfig();
+  if (!config) return false;
+
+  const url = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}/${segmentKey}`;
+
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      Authorization: config.apiKey,
+      "LD-API-Version": "20220603",
+    },
+  });
+
+  if (res.ok || res.status === 204) {
+    console.log(`Deleted LD segment: ${segmentKey}`);
+    return true;
+  }
+
+  if (res.status === 404) {
+    console.log(`LD segment ${segmentKey} already deleted or not found.`);
+    return true; // Already gone, consider success
+  }
+
+  const error = await res.text();
+  console.error(`Failed to delete LD segment ${segmentKey}: ${error}`);
+  return false;
+}
+
+/**
  * Forward segment changes for a single profile to LaunchDarkly.
  * Returns the number of successful segment updates.
  */

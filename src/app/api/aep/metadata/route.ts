@@ -10,6 +10,7 @@ import { after } from "next/server";
 export const dynamic = "force-dynamic";
 
 interface AepMetadataPayload {
+  action?: "create" | "update" | "delete";
   audiences?: Array<{
     id: string;
     name: string;
@@ -48,20 +49,22 @@ export async function POST(request: Request) {
     );
   }
 
+  const action = payload.action || "create";
+
   // 3. Process the metadata
   try {
     // Run the metadata processing in the background so we can respond to AEP immediately
     after(async () => {
       try {
-        await processAepMetadata(payload.audiences!);
+        await processAepMetadata(payload.audiences!, action);
       } catch (err) {
-        console.error("Background Metadata sync failed", err);
+        console.error(`Background Metadata ${action} sync failed`, err);
       }
     });
 
     return Response.json({
       success: true,
-      message: "Metadata received. Syncing to database and LaunchDarkly in the background.",
+      message: `Metadata ${action} received. Syncing to database and LaunchDarkly in the background.`,
     });
   } catch (error) {
     console.error("Error queueing AEP metadata processing:", error);

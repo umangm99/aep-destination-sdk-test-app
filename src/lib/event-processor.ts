@@ -238,16 +238,25 @@ async function upsertSegment(
 
 /**
  * Upsert profile-segment membership.
+ * Uses lastQualificationTime to enforce event ordering:
+ * - New rows are always inserted.
+ * - Existing rows are only updated if the incoming lastQualificationTime
+ *   is newer than (or equal to) what's already stored, preventing
+ *   out-of-order events from overwriting newer state.
+ *
+ * Returns true if the row was inserted or updated, false if skipped (stale).
  */
 async function upsertProfileSegment(
   profileId: number,
   segmentDbId: number,
   status: string,
   lastQualificationTime?: string,
-) {
+): Promise<boolean> {
   const database = db();
 
-  await database
+  // Use raw SQL to conditionally update only if incoming timestamp is >= stored.
+  // The onConflictDoUpdate SET clause with a WHERE ensures stale events are dropped.
+  const result = await database
     .insert(profileSegments)
     .values({
       profileId,
@@ -263,7 +272,14 @@ async function upsertProfileSegment(
         lastQualificationTime,
         updatedAt: new Date(),
       },
+      setWhere: lastQualificationTime
+        ? sql`${profileSegments.lastQualificationTime} IS NULL OR ${profileSegments.lastQualificationTime} <= ${lastQualificationTime}`
+        : undefined,
     });
+
+  // If rowCount is 0, the conflict update was skipped (stale event)
+  const rowCount = (result as unknown as { rowCount: number }).rowCount ?? 1;
+  return rowCount > 0;
 }
 
 /**
@@ -362,7 +378,7 @@ export async function processAEPEvent(
 
     for (const [segId, segData] of Object.entries(aepProfile.segments || {})) {
       const segmentDbId = await upsertSegment(segId);
-      await upsertProfileSegment(
+      const wasApplied = await upsertProfileSegment(
         profileId,
         segmentDbId,
         segData.status,
@@ -370,10 +386,18 @@ export async function processAEPEvent(
       );
       segmentsProcessed++;
 
-      segmentChanges.push({
-        segmentId: segId,
-        status: segData.status,
-      });
+      // Only forward to LD if this was actually a newer event (not stale)
+      if (wasApplied) {
+        segmentChanges.push({
+          segmentId: segId,
+          status: segData.status,
+        });
+      } else {
+        console.warn(
+          `Skipped stale segment update: profile=${profileId} segment=${segId} ` +
+          `status=${segData.status} time=${segData.lastQualificationTime}`
+        );
+      }
     }
 
     if (ldEnabled && segmentChanges.length > 0) {
@@ -426,36 +450,53 @@ export async function executeBackgroundLDForwarding(task: LDForwardingTask) {
 
 /**
  * Process Audience Metadata from AEP.
- * Payload is typically an array of mapped audiences: [{ segmentId, segmentName }]
+ * @param audiences - Array of audience objects with id and name.
+ * @param action - "create" | "update" | "delete" — determines what we do in DB and LD.
  */
 export async function processAepMetadata(
   audiences: Array<{ id: string; name: string }>,
+  action: "create" | "update" | "delete" = "create",
 ): Promise<{ processed: number; errors: number }> {
   let processed = 0;
   let errors = 0;
+  const database = db();
   const ldEnabled = await isLDEnabled();
 
-  // Import the update function (dynamically if needed or at top, we already have some LD imports at top)
-  const { updateLDSegmentName } = await import("./launchdarkly");
+  const { updateLDSegmentName, deleteLDSegment } = await import("./launchdarkly");
 
   for (const aud of audiences) {
-    if (!aud.id || !aud.name) {
+    if (!aud.id) {
       errors++;
       continue;
     }
 
     try {
-      // Update DB
-      await upsertSegment(aud.id, aud.name);
-      
-      // Update LD
-      if (ldEnabled) {
-        const segmentKey = aud.id.replace(/[^a-zA-Z0-9._-]/g, "-").toLowerCase();
-        await updateLDSegmentName(segmentKey, aud.name);
+      const segmentKey = aud.id.replace(/[^a-zA-Z0-9._-]/g, "-").toLowerCase();
+
+      if (action === "delete") {
+        // Remove segment from DB (profile_segments cascade-deletes automatically)
+        await database
+          .delete(segments)
+          .where(eq(segments.segmentId, aud.id));
+
+        // Remove from LaunchDarkly
+        if (ldEnabled) {
+          await deleteLDSegment(segmentKey);
+        }
+
+        console.log(`Deleted segment ${aud.id} from DB and LD`);
+      } else {
+        // "create" or "update" — upsert the segment name
+        await upsertSegment(aud.id, aud.name);
+
+        if (ldEnabled) {
+          await updateLDSegmentName(segmentKey, aud.name);
+        }
       }
+
       processed++;
     } catch (err) {
-      console.error(`Error processing metadata for segment ${aud.id}:`, err);
+      console.error(`Error processing metadata (${action}) for segment ${aud.id}:`, err);
       errors++;
     }
   }
