@@ -112,7 +112,7 @@ This configures AEP to push human-readable segment names to our metadata endpoin
       "responseFields": [
         {
           "name": "externalAudienceId",
-          "value": "{{body.segments[0].segment.id}}"
+          "value": "{{body.segments[0].id}}"
         }
       ],
       "responseErrorFields": [
@@ -146,7 +146,7 @@ This configures AEP to push human-readable segment names to our metadata endpoin
       "responseFields": [
         {
           "name": "externalAudienceId",
-          "value": "{{body.segments[0].segment.id}}"
+          "value": "{{body.segments[0].id}}"
         }
       ],
       "responseErrorFields": [
@@ -177,12 +177,6 @@ This configures AEP to push human-readable segment names to our metadata endpoin
           ]
         }
       },
-      "responseFields": [
-        {
-          "name": "externalAudienceId",
-          "value": "{{body.segments[0].segment.id}}"
-        }
-      ],
       "responseErrorFields": [
         {
           "name": "message",
@@ -199,10 +193,11 @@ This configures AEP to push human-readable segment names to our metadata endpoin
 > ```json
 > {
 >   "action": "create",
->   "audiences": [
+>   "segments": [
 >     {
 >       "id": "segment-uuid-1234",
->       "name": "High-Value Home Loan Prospects"
+>       "name": "High-Value Home Loan Prospects",
+>       "description": "Prospects browsing high-value loans"
 >     }
 >   ]
 > }
