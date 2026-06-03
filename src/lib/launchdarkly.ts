@@ -156,6 +156,50 @@ async function updateSegmentMembership(
 }
 
 /**
+ * Update the name and description of a segment in LaunchDarkly.
+ */
+export async function updateLDSegmentName(
+  segmentKey: string,
+  segmentName: string,
+): Promise<boolean> {
+  const config = getLDConfig();
+  if (!config) return false;
+
+  const url = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}/${segmentKey}`;
+
+  // Use JSON Patch to replace name and description
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      Authorization: config.apiKey,
+      "Content-Type": "application/json; domain-model=launchdarkly.semanticpatch",
+      "LD-API-Version": "20220603",
+    },
+    body: JSON.stringify({
+      instructions: [
+        { kind: "replace", path: "/name", value: segmentName },
+        { kind: "replace", path: "/description", value: `Auto-synced from AEP: ${segmentName}` },
+      ],
+      comment: `AEP sync: updated segment name`,
+    }),
+  });
+
+  if (res.ok) {
+    console.log(`Updated LD segment name for: ${segmentKey}`);
+    return true;
+  }
+
+  // If 404, it might not exist yet; ensure it exists with the new name
+  if (res.status === 404) {
+    return ensureLDSegment(config, segmentKey, segmentName);
+  }
+
+  const error = await res.text();
+  console.error(`Failed to update LD segment name ${segmentKey}: ${error}`);
+  return false;
+}
+
+/**
  * Forward segment changes for a single profile to LaunchDarkly.
  * Returns the number of successful segment updates.
  */

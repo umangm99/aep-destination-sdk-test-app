@@ -52,9 +52,7 @@ function extractIdentities(identities: Record<string, string[]>) {
   };
 
   return {
-    nbid: getFirst("NBID"),
     cifhash: getFirst("CIFHash"),
-    cif: getFirst("CIF"),
     webTrackerId: getFirst("WebTrackerID"),
     ecids: getAll("ECID"),
   };
@@ -81,64 +79,7 @@ async function resolveProfile(
   const database = db();
   const now = new Date();
 
-  // 1. Try to match by NBID (primary for authenticated)
-  if (identities.nbid) {
-    const existing = await database
-      .select({ id: profiles.id, ecids: profiles.ecids })
-      .from(profiles)
-      .where(eq(profiles.nbid, identities.nbid))
-      .limit(1);
-
-    if (existing.length > 0) {
-      // Update existing profile
-      await database
-        .update(profiles)
-        .set({
-          cifhash: identities.cifhash || undefined,
-          cif: identities.cif || undefined,
-          webTrackerId: identities.webTrackerId || undefined,
-          ecids: mergeEcids(existing[0].ecids, identities.ecids),
-          isAuthenticated: true,
-          rawIdentities: rawIdentitiesJson,
-          lastSeenAt: now,
-        })
-        .where(eq(profiles.id, existing[0].id));
-
-      return existing[0].id;
-    }
-
-    // Create new authenticated profile
-    const [newProfile] = await database
-      .insert(profiles)
-      .values({
-        nbid: identities.nbid,
-        cifhash: identities.cifhash,
-        cif: identities.cif,
-        webTrackerId: identities.webTrackerId,
-        ecids: identities.ecids,
-        isAuthenticated: true,
-        rawIdentities: rawIdentitiesJson,
-        firstSeenAt: now,
-        lastSeenAt: now,
-      })
-      .returning({ id: profiles.id });
-
-    // Also create identity mapping if we have all three
-    if (identities.cifhash && identities.cif) {
-      await database
-        .insert(identityMapping)
-        .values({
-          nbid: identities.nbid,
-          cifhash: identities.cifhash,
-          cif: identities.cif,
-        })
-        .onConflictDoNothing();
-    }
-
-    return newProfile.id;
-  }
-
-  // 2. Try to resolve via CIFHash → identity_mapping → NBID
+  // 1. Try to resolve via CIFHash → identity_mapping → NBID
   if (identities.cifhash) {
     const mapping = await database
       .select()
@@ -180,7 +121,6 @@ async function resolveProfile(
       await database
         .update(profiles)
         .set({
-          cif: identities.cif || undefined,
           webTrackerId: identities.webTrackerId || undefined,
           ecids: mergeEcids(existing[0].ecids, identities.ecids),
           rawIdentities: rawIdentitiesJson,
@@ -196,7 +136,6 @@ async function resolveProfile(
       .insert(profiles)
       .values({
         cifhash: identities.cifhash,
-        cif: identities.cif,
         webTrackerId: identities.webTrackerId,
         ecids: identities.ecids,
         isAuthenticated: true,
@@ -410,6 +349,13 @@ export async function processAEPEvent(
     const profileId = await resolveProfile(identities, aepProfile.identities || {});
     profilesProcessed++;
 
+    // Fetch resolved profile to ensure we pass the canonical NBID to LaunchDarkly
+    const [resolvedProfile] = await database
+      .select({ nbid: profiles.nbid, webTrackerId: profiles.webTrackerId, ecids: profiles.ecids })
+      .from(profiles)
+      .where(eq(profiles.id, profileId))
+      .limit(1);
+
     // 3. Process segment memberships
     const segmentChanges: Array<{
       segmentId: string;
@@ -436,9 +382,9 @@ export async function processAEPEvent(
     if (ldEnabled && segmentChanges.length > 0) {
       ldEntries.push({
         profile: {
-          nbid: identities.nbid,
-          webTrackerId: identities.webTrackerId,
-          ecids: identities.ecids,
+          nbid: resolvedProfile.nbid,
+          webTrackerId: resolvedProfile.webTrackerId,
+          ecids: resolvedProfile.ecids,
         },
         segmentChanges,
       });
@@ -480,4 +426,43 @@ export async function executeBackgroundLDForwarding(task: LDForwardingTask) {
   }
   
   console.log(`Background LD sync complete. Forwarded: ${totalForwarded}, Failed: ${totalFailed}`);
+}
+
+/**
+ * Process Audience Metadata from AEP.
+ * Payload is typically an array of mapped audiences: [{ segmentId, segmentName }]
+ */
+export async function processAepMetadata(
+  audiences: Array<{ id: string; name: string }>,
+): Promise<{ processed: number; errors: number }> {
+  let processed = 0;
+  let errors = 0;
+  const ldEnabled = await isLDEnabled();
+
+  // Import the update function (dynamically if needed or at top, we already have some LD imports at top)
+  const { updateLDSegmentName } = await import("./launchdarkly");
+
+  for (const aud of audiences) {
+    if (!aud.id || !aud.name) {
+      errors++;
+      continue;
+    }
+
+    try {
+      // Update DB
+      await upsertSegment(aud.id, aud.name);
+      
+      // Update LD
+      if (ldEnabled) {
+        const segmentKey = aud.id.replace(/[^a-zA-Z0-9._-]/g, "-").toLowerCase();
+        await updateLDSegmentName(segmentKey, aud.name);
+      }
+      processed++;
+    } catch (err) {
+      console.error(`Error processing metadata for segment ${aud.id}:`, err);
+      errors++;
+    }
+  }
+
+  return { processed, errors };
 }
