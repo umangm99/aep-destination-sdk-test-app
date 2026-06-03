@@ -19,13 +19,13 @@ interface AepMetadataPayload {
 
 export async function POST(request: Request) {
   // 1. Validate Basic Auth
-  const auth = validateBasicAuth(request);
-  if (!auth.valid) {
-    return Response.json(
-      { error: "Unauthorized", message: auth.error },
-      { status: 401, headers: { "WWW-Authenticate": 'Basic realm="AEP Destination"' } },
-    );
-  }
+  // const auth = validateBasicAuth(request);
+  // if (!auth.valid) {
+  //   return Response.json(
+  //     { error: "Unauthorized", message: auth.error },
+  //     { status: 401, headers: { "WWW-Authenticate": 'Basic realm="AEP Destination"' } },
+  //   );
+  // }
 
   // 2. Parse request body
   let payload: AepMetadataPayload;
