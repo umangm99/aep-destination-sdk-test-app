@@ -8,6 +8,13 @@
       "when": 1780409309635,
       "tag": "0000_chubby_wiccan",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780449923270,
+      "tag": "0001_mean_lethal_legion",
+      "breakpoints": true
     }
   ]
 }

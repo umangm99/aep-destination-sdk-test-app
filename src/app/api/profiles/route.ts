@@ -25,8 +25,7 @@ export async function GET(request: NextRequest) {
           ilike(profiles.nbid, `%${search}%`),
           ilike(profiles.cifhash, `%${search}%`),
           ilike(profiles.cif, `%${search}%`),
-          ilike(profiles.webTrackerId, `%${search}%`),
-          ilike(sql`array_to_string(${profiles.ecids}, ',')`, `%${search}%`),
+          ilike(profiles.webTrackerId, `%${search}%`)
         )
       : undefined;
 
@@ -38,7 +37,6 @@ export async function GET(request: NextRequest) {
           cifhash: profiles.cifhash,
           cif: profiles.cif,
           webTrackerId: profiles.webTrackerId,
-          ecids: profiles.ecids,
           isAuthenticated: profiles.isAuthenticated,
           firstSeenAt: profiles.firstSeenAt,
           lastSeenAt: profiles.lastSeenAt,

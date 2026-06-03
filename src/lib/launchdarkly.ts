@@ -2,7 +2,7 @@
  * LaunchDarkly integration via REST API.
  * Forwards AEP segment membership changes to LD segments.
  *
- * Context key fallback: nbid → webtrackerid → ecid
+ * Context key fallback: nbid → webtrackerid
  * CIFHash is NEVER sent to LD — only used for identity_mapping lookups.
  */
 
@@ -38,15 +38,14 @@ function getLDConfig(): LDConfig | null {
 
 /**
  * Resolve the LD context key for a profile.
- * Fallback chain: nbid → web_tracker_id → ecid
+ * Fallback chain: nbid → web_tracker_id
  * CIFHash is NOT used as LD key.
  */
 export function resolveLDContextKey(profile: {
   nbid?: string | null;
   webTrackerId?: string | null;
-  ecids?: string[] | null;
 }): string | null {
-  return profile.nbid || profile.webTrackerId || profile.ecids?.[0] || null;
+  return profile.nbid || profile.webTrackerId || null;
 }
 
 /**
@@ -204,7 +203,7 @@ export async function updateLDSegmentName(
  * Returns the number of successful segment updates.
  */
 export async function forwardToLaunchDarkly(
-  profile: { nbid?: string | null; webTrackerId?: string | null; ecids?: string[] | null },
+  profile: { nbid?: string | null; webTrackerId?: string | null; },
   segmentChanges: SegmentChange[],
 ): Promise<{ forwarded: number; failed: number }> {
   const config = getLDConfig();
@@ -254,7 +253,7 @@ export async function forwardToLaunchDarkly(
  */
 export async function batchForwardToLD(
   entries: Array<{
-    profile: { nbid?: string | null; webTrackerId?: string | null; ecids?: string[] | null };
+    profile: { nbid?: string | null; webTrackerId?: string | null; };
     segmentChanges: SegmentChange[];
   }>,
 ): Promise<{ totalForwarded: number; totalFailed: number }> {

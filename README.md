@@ -5,7 +5,7 @@ A Next.js application designed to receive, process, and visualize audience segme
 ## Core Capabilities
 
 - **Realtime AEP Webhook Receiver**: Secure POST endpoints (`/api/aep/events` and `/api/aep/metadata`) with Basic Authentication designed to handle AEP's "Best Effort" streaming aggregation.
-- **Advanced Identity Resolution**: Extracts `CIFHash`, `WebTrackerID`, and `ECID` from AEP payloads, automatically resolving them to core application identities (like `NBID`) across authenticated and unauthenticated states.
+- **Advanced Identity Resolution**: Extract the user's `CIFHash` or `WebTrackerID`. Attempt to resolve the true `NBID` via the `identity_mapping` table. (If a `CIFHash` doesn't exist, it dynamically generates and locks mock identifiers).
 - **Audience Metadata Sync**: Automatically ingests AEP segment metadata mapping, storing human-readable segment names instead of raw UUIDs.
 - **LaunchDarkly Forwarding**: Forwards segment memberships and metadata updates to LaunchDarkly using Vercel background tasks (`next/server after()`) to ensure the webhook responses are instant.
 - **Realtime Dashboard**: View incoming events, active profiles, and segment metrics instantly.

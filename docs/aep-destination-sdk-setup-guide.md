@@ -7,7 +7,7 @@ Based on your application's architecture (`/api/aep/events`):
 - **Authentication**: The endpoint expects **Basic Auth**.
 - **Payload**: The application expects an array of profiles with an `identities` map and a `segments` map.
 - **Event Frequency**: You should configure this as **Best Effort** (real-time streaming). The application processes incoming events instantly and schedules a non-blocking background task (via Next.js `after()`) to forward the segment changes to LaunchDarkly. For real-time experimentation on the site, receiving profile segment qualifications immediately is critical.
-- **Identities**: The application expects the following optional identities (at least one will be present): `CIFHash`, `WebTrackerID`, and `ECID`. (The internal DB maps `CIFHash` to authenticated user `NBID`s).
+- **Identities**: The application expects the following optional identities (at least one will be present): `CIFHash` and `WebTrackerID`. (The internal DB maps `CIFHash` to authenticated user `NBID`s).
 
 ---
 
@@ -47,8 +47,7 @@ The destination server configuration defines where AEP should send the data and 
 >     {
 >       "identities": {
 >         "CIFHash": [ "test-cifhash-123" ],
->         "WebTrackerID": [ "test-web-456" ],
->         "ECID": [ "11111111111" ]
+>         "WebTrackerID": [ "test-web-456" ]
 >       },
 >       "segments": {
 >         "segment-uuid-1234": {
@@ -83,12 +82,22 @@ This configures the UI representation of the destination and maps the identities
     "connectionType": "Server-to-server"
   },
   "customerDataFields": [],
-  "identityNamespaces": {
-    "eligibility": "ANY",
-    "namespaces": [
-      { "name": "CIFHash", "restrictions": { "required": false } },
-      { "name": "WebTrackerID", "restrictions": { "required": false } },
-      { "name": "ECID", "restrictions": { "required": false } }
+  "schemaConfig": {
+    "profileRequired": false,
+    "segmentRequired": true,
+    "identityRequired": true,
+    "requiredMappingsOnly": false,
+    "requiredMappings": [
+      {
+        "destination": "identityMap.CIFHash",
+        "mandatoryRequired": false,
+        "primaryKeyRequired": true
+      },
+      {
+        "destination": "identityMap.WebTrackerID",
+        "mandatoryRequired": false,
+        "primaryKeyRequired": false
+      }
     ]
   },
   "authOptions": [
@@ -210,6 +219,6 @@ Now that the destination is live, you can activate audiences via the standard Ad
 2. **Find your Destination**: Search for "TestBank Real-Time LD Integration" and click **Set up**.
 3. **Authenticate**: When prompted, enter your Basic Auth credentials configured in your `.env` (`BASIC_AUTH_USERNAME` and `BASIC_AUTH_PASSWORD`).
 4. **Select Audiences**: Pick the segments you want to forward to the site (e.g., "High-Value Home Loan Prospects").
-5. **Mapping**: Since the destination relies on predefined `identityNamespaces` mapped in Step 2, map the appropriate AEP source identities to the target destination identities (`CIFHash`, `WebTrackerID`, `ECID`). Note: Profiles will always include at least one of these identities.
+5. **Mapping**: The destination relies on `schemaConfig` predefined mappings. You can now flexibly map any AEP source identity namespace to the target `identityMap.CIFHash` and `identityMap.WebTrackerID` without strict naming matching. Note: Profiles will always need at least one of these identities to be processed.
 6. **Schedule**: Ensure the schedule is continuous/streaming. 
 7. **Review & Save**: Finish the flow. AEP will now begin pushing segment qualification payloads directly to your `/api/aep/events` endpoint in near real-time, and segment metadata directly to `/api/aep/metadata`.

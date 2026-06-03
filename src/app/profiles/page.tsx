@@ -25,8 +25,7 @@ export default async function ProfilesPage({
         ilike(profiles.nbid, `%${search}%`),
         ilike(profiles.cifhash, `%${search}%`),
         ilike(profiles.cif, `%${search}%`),
-        ilike(profiles.webTrackerId, `%${search}%`),
-        ilike(sql`array_to_string(${profiles.ecids}, ',')`, `%${search}%`),
+        ilike(profiles.webTrackerId, `%${search}%`)
       )
     : undefined;
 
@@ -38,7 +37,6 @@ export default async function ProfilesPage({
         cifhash: profiles.cifhash,
         cif: profiles.cif,
         webTrackerId: profiles.webTrackerId,
-        ecids: profiles.ecids,
         isAuthenticated: profiles.isAuthenticated,
         lastSeenAt: profiles.lastSeenAt,
         segmentCount: sql<number>`(
@@ -108,18 +106,14 @@ export default async function ProfilesPage({
                         <IdentityTag label="NBID" value={p.nbid} />
                       ) : p.webTrackerId ? (
                         <IdentityTag label="WTID" value={p.webTrackerId} />
-                      ) : p.ecids.length > 0 ? (
-                        <IdentityTag label="ECID" value={p.ecids[0]} />
-                      ) : null}
+                      ) : (
+                        <span className="text-[var(--ds-gray-900)] text-sm italic">Unknown</span>
+                      )}
                     </td>
                     <td>
                       <div className="id-tags-inline">
                         {p.nbid && <IdentityTag label="CIFHash" value={p.cifhash} />}
                         {p.nbid && <IdentityTag label="CIF" value={p.cif} />}
-                        {(p.nbid || p.webTrackerId) 
-                          ? p.ecids.map((ecid, i) => <IdentityTag key={i} label="ECID" value={ecid} />)
-                          : p.ecids.slice(1).map((ecid, i) => <IdentityTag key={i} label="ECID" value={ecid} />)
-                        }
                       </div>
                     </td>
                     <td>{p.segmentCount}</td>

@@ -17,5 +17,5 @@ This project acts as an Adobe Experience Platform (AEP) Custom Destination. It r
 
 ## Architectural Notes
 - **Background Sync**: We use Next.js `after()` to immediately return a 200 OK to AEP while forwarding data to LaunchDarkly in the background. Do not make background network calls block the webhook response.
-- **Identity Hierarchy**: AEP will only pass `CIFHash`, `WebTrackerID`, or `ECID` (at least 1 per profile). The app extracts these, resolves the corresponding canonical `NBID` from the local identity mapping table, and uses the resolved `NBID` or `WebTrackerID` as the primary context key for LaunchDarkly.
+- **Identity Hierarchy**: AEP will only pass `CIFHash` or `WebTrackerID` (at least 1 per profile). The app extracts these, resolves the corresponding canonical `NBID` from the local identity mapping table, and uses the resolved `NBID` or `WebTrackerID` as the primary context key for LaunchDarkly.
 - **Database**: We use Neon Postgres via Drizzle ORM (`/src/db/schema.ts`).

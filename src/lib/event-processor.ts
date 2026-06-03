@@ -54,15 +54,7 @@ function extractIdentities(identities: Record<string, string[]>) {
   return {
     cifhash: getFirst("CIFHash"),
     webTrackerId: getFirst("WebTrackerID"),
-    ecids: getAll("ECID"),
   };
-}
-
-/**
- * Helper to merge incoming ECIDs with existing ECIDs cleanly.
- */
-function mergeEcids(existing: string[] | null | undefined, incoming: string[]): string[] {
-  return Array.from(new Set([...(existing || []), ...incoming]));
 }
 
 /**
@@ -90,7 +82,7 @@ async function resolveProfile(
     if (mapping.length > 0) {
       // Found mapping, look up profile by NBID
       const existing = await database
-        .select({ id: profiles.id, ecids: profiles.ecids })
+        .select({ id: profiles.id })
         .from(profiles)
         .where(eq(profiles.nbid, mapping[0].nbid))
         .limit(1);
@@ -100,7 +92,6 @@ async function resolveProfile(
           .update(profiles)
           .set({
             webTrackerId: identities.webTrackerId || undefined,
-            ecids: mergeEcids(existing[0].ecids, identities.ecids),
             rawIdentities: rawIdentitiesJson,
             lastSeenAt: now,
           })
@@ -110,9 +101,27 @@ async function resolveProfile(
       }
     }
 
-    // No mapping found — try matching by cifhash directly on profile
+    // No mapping found — generate mock identities for this CIFHash
+    const generateDigits = (len: number) => {
+      let result = "";
+      for (let i = 0; i < len; i++) {
+        result += Math.floor(Math.random() * 10).toString();
+      }
+      return result;
+    };
+    
+    const mockNbid = generateDigits(6);
+    const mockCif = generateDigits(7);
+    const mockWebTrackerId = generateDigits(9);
+
+    await database.insert(identityMapping).values({
+      cifhash: identities.cifhash,
+      nbid: mockNbid,
+      cif: mockCif,
+    });
+
     const existing = await database
-      .select({ id: profiles.id, ecids: profiles.ecids })
+      .select({ id: profiles.id })
       .from(profiles)
       .where(eq(profiles.cifhash, identities.cifhash))
       .limit(1);
@@ -121,8 +130,9 @@ async function resolveProfile(
       await database
         .update(profiles)
         .set({
-          webTrackerId: identities.webTrackerId || undefined,
-          ecids: mergeEcids(existing[0].ecids, identities.ecids),
+          nbid: mockNbid,
+          cif: mockCif,
+          webTrackerId: identities.webTrackerId || mockWebTrackerId,
           rawIdentities: rawIdentitiesJson,
           lastSeenAt: now,
         })
@@ -131,13 +141,14 @@ async function resolveProfile(
       return existing[0].id;
     }
 
-    // Create new profile with cifhash (partially authenticated)
+    // Create new profile with the mocked identities
     const [newProfile] = await database
       .insert(profiles)
       .values({
+        nbid: mockNbid,
         cifhash: identities.cifhash,
-        webTrackerId: identities.webTrackerId,
-        ecids: identities.ecids,
+        cif: mockCif,
+        webTrackerId: identities.webTrackerId || mockWebTrackerId,
         isAuthenticated: true,
         rawIdentities: rawIdentitiesJson,
         firstSeenAt: now,
@@ -151,7 +162,7 @@ async function resolveProfile(
   // 3. Try to match by WebTrackerID (unique per customer)
   if (identities.webTrackerId) {
     const existing = await database
-      .select({ id: profiles.id, ecids: profiles.ecids })
+      .select({ id: profiles.id })
       .from(profiles)
       .where(eq(profiles.webTrackerId, identities.webTrackerId))
       .limit(1);
@@ -160,7 +171,6 @@ async function resolveProfile(
       await database
         .update(profiles)
         .set({
-          ecids: mergeEcids(existing[0].ecids, identities.ecids),
           rawIdentities: rawIdentitiesJson,
           lastSeenAt: now,
         })
@@ -174,7 +184,6 @@ async function resolveProfile(
       .insert(profiles)
       .values({
         webTrackerId: identities.webTrackerId,
-        ecids: identities.ecids,
         isAuthenticated: false,
         rawIdentities: rawIdentitiesJson,
         firstSeenAt: now,
@@ -185,19 +194,7 @@ async function resolveProfile(
     return newProfile.id;
   }
 
-  // 4. ECID only — cannot reliably match (shared browser), create new profile
-  const [newProfile] = await database
-    .insert(profiles)
-    .values({
-      ecids: identities.ecids,
-      isAuthenticated: false,
-      rawIdentities: rawIdentitiesJson,
-      firstSeenAt: now,
-      lastSeenAt: now,
-    })
-    .returning({ id: profiles.id });
-
-  return newProfile.id;
+  throw new Error("No valid identities provided by AEP");
 }
 
 // ─── Segment Processing ─────────────────────────────────────────────────────
@@ -296,7 +293,7 @@ async function updateSegmentCounts() {
 export interface LDForwardingTask {
   eventId: number;
   entries: Array<{
-    profile: { nbid: string | null; webTrackerId: string | null; ecids: string[] };
+    profile: { nbid: string | null; webTrackerId: string | null; };
     segmentChanges: Array<{
       segmentId: string;
       segmentName?: string;
@@ -351,7 +348,7 @@ export async function processAEPEvent(
 
     // Fetch resolved profile to ensure we pass the canonical NBID to LaunchDarkly
     const [resolvedProfile] = await database
-      .select({ nbid: profiles.nbid, webTrackerId: profiles.webTrackerId, ecids: profiles.ecids })
+      .select({ nbid: profiles.nbid, webTrackerId: profiles.webTrackerId })
       .from(profiles)
       .where(eq(profiles.id, profileId))
       .limit(1);
@@ -384,7 +381,6 @@ export async function processAEPEvent(
         profile: {
           nbid: resolvedProfile.nbid,
           webTrackerId: resolvedProfile.webTrackerId,
-          ecids: resolvedProfile.ecids,
         },
         segmentChanges,
       });

@@ -35,9 +35,6 @@ export const profiles = pgTable("profiles", {
   cif: text("cif"),
   // Tracking identities
   webTrackerId: text("web_tracker_id"),
-  // ECID is NOT unique — shared browser = same ECID for multiple users
-  // A single profile can have multiple ECIDs if they browse from multiple devices/browsers
-  ecids: text("ecids").array().notNull().default(sql`'{}'::text[]`),
   isAuthenticated: boolean("is_authenticated").notNull().default(false),
   // Raw identities as received from AEP (for debugging)
   rawIdentities: jsonb("raw_identities"),
