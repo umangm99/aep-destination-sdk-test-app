@@ -21,7 +21,7 @@ export default function EventsPage() {
     try {
       const res = await fetch("/api/events?limit=50");
       const data = await res.json();
-      setEvents(data.data || []);
+      setEvents(data.events || []);
     } catch (err) {
       console.error("Failed to fetch events", err);
     } finally {
@@ -40,8 +40,8 @@ export default function EventsPage() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '24px' }}>
         <header className="page-header" style={{ paddingBottom: '16px' }}>
           <div>
-            <h1 className="page-title">Live Event Stream</h1>
-            <p className="page-subtitle">Raw webhook payloads received from AEP</p>
+            <h1 className="page-title">Recent Events (Last 15 Mins)</h1>
+            <p className="page-subtitle">Raw webhook payloads received from AEP in the last 15 minutes</p>
           </div>
         </header>
 

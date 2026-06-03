@@ -4,7 +4,7 @@
 
 import { db } from "@/db";
 import { rawEvents } from "@/db/schema";
-import { desc, count } from "drizzle-orm";
+import { desc, count, gte } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -17,15 +17,17 @@ export async function GET(request: NextRequest) {
 
   try {
     const database = db();
+    const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
 
     const [events, [totalResult]] = await Promise.all([
       database
         .select()
         .from(rawEvents)
+        .where(gte(rawEvents.receivedAt, fifteenMinsAgo))
         .orderBy(desc(rawEvents.receivedAt))
         .limit(limit)
         .offset(offset),
-      database.select({ total: count() }).from(rawEvents),
+      database.select({ total: count() }).from(rawEvents).where(gte(rawEvents.receivedAt, fifteenMinsAgo)),
     ]);
 
     const total = totalResult.total;
