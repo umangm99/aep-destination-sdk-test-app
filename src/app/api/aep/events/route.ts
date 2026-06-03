@@ -10,9 +10,17 @@ import { after } from "next/server";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const rawBody = await request.text();
+
+  // Log the incoming request to Vercel for debugging AEP payloads
+  console.log(`[AEP Events] Incoming POST request`);
+  console.log(`[AEP Events] Headers:`, Object.fromEntries(request.headers.entries()));
+  console.log(`[AEP Events] Body:`, rawBody);
+
   // 1. Validate Basic Auth
   const auth = validateBasicAuth(request);
   if (!auth.valid) {
+    console.error(`[AEP Events] Auth failed: ${auth.error}`);
     return Response.json(
       { error: "Unauthorized", message: auth.error },
       { status: 401, headers: { "WWW-Authenticate": 'Basic realm="AEP Destination"' } },
@@ -22,8 +30,9 @@ export async function POST(request: Request) {
   // 2. Parse request body
   let payload: AEPPayload;
   try {
-    payload = await request.json();
+    payload = JSON.parse(rawBody);
   } catch {
+    console.error(`[AEP Events] Invalid JSON body`);
     return Response.json(
       { error: "Bad Request", message: "Invalid JSON body" },
       { status: 400 },
@@ -55,11 +64,14 @@ export async function POST(request: Request) {
       after(async () => {
         try {
           await executeBackgroundLDForwarding(result.ldTask!);
+          console.log("[AEP Events] Successfully processed background LD sync.");
         } catch (err) {
-          console.error("Background LD sync failed", err);
+          console.error("[AEP Events] Background LD sync failed", err);
         }
       });
     }
+
+    console.log(`[AEP Events] Successfully queued event processing (EventId: ${result.eventId}).`);
 
     return Response.json({
       success: true,

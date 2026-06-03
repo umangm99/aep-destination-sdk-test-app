@@ -18,20 +18,29 @@ interface AepMetadataPayload {
 }
 
 export async function POST(request: Request) {
+  const rawBody = await request.text();
+  
+  // Log the incoming request to Vercel for debugging AEP payloads
+  console.log(`[AEP Metadata] Incoming POST request`);
+  console.log(`[AEP Metadata] Headers:`, Object.fromEntries(request.headers.entries()));
+  console.log(`[AEP Metadata] Body:`, rawBody);
+
   // 1. Validate Basic Auth
-  // const auth = validateBasicAuth(request);
-  // if (!auth.valid) {
-  //   return Response.json(
-  //     { error: "Unauthorized", message: auth.error },
-  //     { status: 401, headers: { "WWW-Authenticate": 'Basic realm="AEP Destination"' } },
-  //   );
-  // }
+  const auth = validateBasicAuth(request);
+  if (!auth.valid) {
+    console.error(`[AEP Metadata] Auth failed: ${auth.error}`);
+    return Response.json(
+      { error: "Unauthorized", message: auth.error },
+      { status: 401, headers: { "WWW-Authenticate": 'Basic realm="AEP Destination"' } },
+    );
+  }
 
   // 2. Parse request body
   let payload: AepMetadataPayload;
   try {
-    payload = await request.json();
+    payload = JSON.parse(rawBody);
   } catch {
+    console.error(`[AEP Metadata] Invalid JSON body`);
     return Response.json(
       { error: "Bad Request", message: "Invalid JSON body" },
       { status: 400 },
@@ -57,10 +66,13 @@ export async function POST(request: Request) {
     after(async () => {
       try {
         await processAepMetadata(payload.audiences!, action);
+        console.log(`[AEP Metadata] Successfully processed background metadata ${action} sync.`);
       } catch (err) {
-        console.error(`Background Metadata ${action} sync failed`, err);
+        console.error(`[AEP Metadata] Background Metadata ${action} sync failed`, err);
       }
     });
+
+    console.log(`[AEP Metadata] Successfully queued metadata ${action} for background processing.`);
 
     return Response.json({
       success: true,
