@@ -110,7 +110,7 @@ This configures AEP to push human-readable segment names to our metadata endpoin
       },
       "responseFields": [
         {
-          "name": "{{body.audiences[0].id}}",
+          "name": "{{body.id}}",
           "value": "externalAudienceId"
         }
       ],
@@ -143,7 +143,7 @@ This configures AEP to push human-readable segment names to our metadata endpoin
       },
       "responseFields": [
         {
-          "name": "{{body.audiences[0].id}}",
+          "name": "{{body.id}}",
           "value": "externalAudienceId"
         }
       ],
@@ -176,7 +176,7 @@ This configures AEP to push human-readable segment names to our metadata endpoin
       },
       "responseFields": [
         {
-          "name": "{{body.audiences[0].id}}",
+          "name": "{{body.id}}",
           "value": "externalAudienceId"
         }
       ],

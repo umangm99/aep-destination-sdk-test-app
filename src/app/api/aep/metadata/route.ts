@@ -71,7 +71,7 @@ export async function POST(request: Request) {
     return Response.json({
       success: true,
       message: `Metadata ${action} received. Syncing to database and LaunchDarkly in the background.`,
-      audiences: payload.audiences.map(aud => ({ id: aud.id }))
+      id: payload.audiences[0]?.id
     });
   } catch (error) {
     console.error("Error queueing AEP metadata processing:", error);
