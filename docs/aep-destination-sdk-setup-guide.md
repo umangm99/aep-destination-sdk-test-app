@@ -100,18 +100,19 @@ This configures AEP to push human-readable segment names to our metadata endpoin
       "requestBody": {
         "json": {
           "action": "create",
-          "audiences": [
+          "segments": [
             {
               "id": "{{segment.id}}",
-              "name": "{{segment.name}}"
+              "name": "{{segment.name}}",
+              "description":"{{segment.description}}"
             }
           ]
         }
       },
       "responseFields": [
         {
-          "name": "{{body.id}}",
-          "value": "externalAudienceId"
+          "name": "externalAudienceId",
+          "value": "{{body.segments[0].segment.id}}"
         }
       ],
       "responseErrorFields": [
@@ -133,18 +134,19 @@ This configures AEP to push human-readable segment names to our metadata endpoin
       "requestBody": {
         "json": {
           "action": "update",
-          "audiences": [
+          "segments": [
             {
               "id": "{{segment.id}}",
-              "name": "{{segment.name}}"
+              "name": "{{segment.name}}",
+              "description":"{{segment.description}}"
             }
           ]
         }
       },
       "responseFields": [
         {
-          "name": "{{body.id}}",
-          "value": "externalAudienceId"
+          "name": "externalAudienceId",
+          "value": "{{body.segments[0].segment.id}}"
         }
       ],
       "responseErrorFields": [
@@ -166,18 +168,19 @@ This configures AEP to push human-readable segment names to our metadata endpoin
       "requestBody": {
         "json": {
           "action": "delete",
-          "audiences": [
+          "segments": [
             {
               "id": "{{segment.id}}",
-              "name": "{{segment.name}}"
+              "name": "{{segment.name}}",
+              "description":"{{segment.description}}"
             }
           ]
         }
       },
       "responseFields": [
         {
-          "name": "{{body.id}}",
-          "value": "externalAudienceId"
+          "name": "externalAudienceId",
+          "value": "{{body.segments[0].segment.id}}"
         }
       ],
       "responseErrorFields": [

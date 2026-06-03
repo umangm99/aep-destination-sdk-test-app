@@ -160,11 +160,14 @@ async function updateSegmentMembership(
 export async function updateLDSegmentName(
   segmentKey: string,
   segmentName: string,
+  description?: string,
 ): Promise<boolean> {
   const config = getLDConfig();
   if (!config) return false;
 
   const url = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}/${segmentKey}`;
+
+  const descToSet = description ? `${description} (Auto-synced from AEP)` : `Auto-synced from AEP: ${segmentName}`;
 
   // Use JSON Patch to replace name and description
   const res = await fetch(url, {
@@ -177,9 +180,9 @@ export async function updateLDSegmentName(
     body: JSON.stringify({
       instructions: [
         { kind: "replace", path: "/name", value: segmentName },
-        { kind: "replace", path: "/description", value: `Auto-synced from AEP: ${segmentName}` },
+        { kind: "replace", path: "/description", value: descToSet },
       ],
-      comment: `AEP sync: updated segment name`,
+      comment: `AEP sync: updated segment name and description`,
     }),
   });
 

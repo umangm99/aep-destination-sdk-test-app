@@ -454,7 +454,7 @@ export async function executeBackgroundLDForwarding(task: LDForwardingTask) {
  * @param action - "create" | "update" | "delete" — determines what we do in DB and LD.
  */
 export async function processAepMetadata(
-  audiences: Array<{ id: string; name: string }>,
+  segmentsList: Array<{ id: string; name: string; description?: string }>,
   action: "create" | "update" | "delete" = "create",
 ): Promise<{ processed: number; errors: number }> {
   let processed = 0;
@@ -464,7 +464,7 @@ export async function processAepMetadata(
 
   const { updateLDSegmentName, deleteLDSegment } = await import("./launchdarkly");
 
-  for (const aud of audiences) {
+  for (const aud of segmentsList) {
     if (!aud.id) {
       errors++;
       continue;
@@ -490,7 +490,7 @@ export async function processAepMetadata(
         await upsertSegment(aud.id, aud.name);
 
         if (ldEnabled) {
-          await updateLDSegmentName(segmentKey, aud.name);
+          await updateLDSegmentName(segmentKey, aud.name, aud.description);
         }
       }
 

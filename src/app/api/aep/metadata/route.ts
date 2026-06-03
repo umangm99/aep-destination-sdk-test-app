@@ -11,9 +11,10 @@ export const dynamic = "force-dynamic";
 
 interface AepMetadataPayload {
   action?: "create" | "update" | "delete";
-  audiences?: Array<{
+  segments?: Array<{
     id: string;
     name: string;
+    description?: string;
   }>;
 }
 
@@ -42,11 +43,11 @@ export async function POST(request: Request) {
   }
 
   // Validate payload structure
-  if (!payload.audiences || !Array.isArray(payload.audiences)) {
+  if (!payload.segments || !Array.isArray(payload.segments)) {
     return Response.json(
       {
         error: "Bad Request",
-        message: 'Missing or invalid "audiences" array in payload',
+        message: 'Missing or invalid "segments" array in payload',
       },
       { status: 400 },
     );
@@ -59,7 +60,7 @@ export async function POST(request: Request) {
     // Run the metadata processing in the background so we can respond to AEP immediately
     after(async () => {
       try {
-        await processAepMetadata(payload.audiences!, action);
+        await processAepMetadata(payload.segments!, action);
         console.log(`[AEP Metadata] Successfully processed background metadata ${action} sync.`);
       } catch (err) {
         console.error(`[AEP Metadata] Background Metadata ${action} sync failed`, err);
@@ -70,8 +71,7 @@ export async function POST(request: Request) {
 
     return Response.json({
       success: true,
-      message: `Metadata ${action} received. Syncing to database and LaunchDarkly in the background.`,
-      id: payload.audiences[0]?.id
+      message: `Metadata ${action} received. Syncing to database and LaunchDarkly in the background.`
     });
   } catch (error) {
     console.error("Error queueing AEP metadata processing:", error);
