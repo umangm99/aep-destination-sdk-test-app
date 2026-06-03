@@ -12,7 +12,7 @@ import {
   profileSegments,
 } from "@/db/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { forwardToLaunchDarkly, isLDEnabled } from "./launchdarkly";
+import { batchForwardToLD, isLDEnabled } from "./launchdarkly";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -205,11 +205,11 @@ async function resolveProfile(
 async function upsertSegment(
   segmentId: string,
   segmentName?: string,
-): Promise<number> {
+): Promise<{ id: number; ldSynced: boolean; segmentName: string | null }> {
   const database = db();
 
   const existing = await database
-    .select({ id: segments.id })
+    .select({ id: segments.id, ldSynced: segments.ldSynced, segmentName: segments.segmentName })
     .from(segments)
     .where(eq(segments.segmentId, segmentId))
     .limit(1);
@@ -220,8 +220,9 @@ async function upsertSegment(
         .update(segments)
         .set({ segmentName })
         .where(eq(segments.id, existing[0].id));
+      return { id: existing[0].id, ldSynced: existing[0].ldSynced, segmentName };
     }
-    return existing[0].id;
+    return { id: existing[0].id, ldSynced: existing[0].ldSynced, segmentName: existing[0].segmentName };
   }
 
   const [newSegment] = await database
@@ -231,9 +232,20 @@ async function upsertSegment(
       segmentName,
       ldSegmentKey: segmentId.replace(/[^a-zA-Z0-9._-]/g, "-").toLowerCase(),
     })
-    .returning({ id: segments.id });
+    .returning({ id: segments.id, ldSynced: segments.ldSynced, segmentName: segments.segmentName });
 
-  return newSegment.id;
+  return { id: newSegment.id, ldSynced: newSegment.ldSynced, segmentName: newSegment.segmentName };
+}
+
+/**
+ * Update the ldSynced flag for a segment.
+ */
+async function updateLDSynced(segmentId: string, synced: boolean): Promise<void> {
+  const database = db();
+  await database
+    .update(segments)
+    .set({ ldSynced: synced })
+    .where(eq(segments.segmentId, segmentId));
 }
 
 /**
@@ -314,6 +326,7 @@ export interface LDForwardingTask {
       segmentId: string;
       segmentName?: string;
       status: string;
+      ldSynced: boolean;
     }>;
   }>;
 }
@@ -374,13 +387,14 @@ export async function processAEPEvent(
       segmentId: string;
       segmentName?: string;
       status: string;
+      ldSynced: boolean;
     }> = [];
 
     for (const [segId, segData] of Object.entries(aepProfile.segments || {})) {
-      const segmentDbId = await upsertSegment(segId);
+      const segmentDb = await upsertSegment(segId);
       const wasApplied = await upsertProfileSegment(
         profileId,
-        segmentDbId,
+        segmentDb.id,
         segData.status,
         segData.lastQualificationTime,
       );
@@ -390,7 +404,9 @@ export async function processAEPEvent(
       if (wasApplied) {
         segmentChanges.push({
           segmentId: segId,
+          segmentName: segmentDb.segmentName || undefined,
           status: segData.status,
+          ldSynced: segmentDb.ldSynced,
         });
       } else {
         console.warn(
@@ -428,17 +444,11 @@ export async function processAEPEvent(
  */
 export async function executeBackgroundLDForwarding(task: LDForwardingTask) {
   const database = db();
-  let totalForwarded = 0;
-  let totalFailed = 0;
+  
+  const { totalForwarded, totalFailed } = await batchForwardToLD(task.entries);
 
-  for (const entry of task.entries) {
-    const result = await forwardToLaunchDarkly(entry.profile, entry.segmentChanges);
-    totalForwarded += result.forwarded;
-    totalFailed += result.failed;
-  }
-
-  // Mark event as LD forwarded if successful
-  if (totalForwarded > 0) {
+  // Mark event as LD forwarded if completely successful
+  if (totalForwarded > 0 && totalFailed === 0) {
     await database
       .update(rawEvents)
       .set({ ldForwarded: true })
@@ -462,7 +472,7 @@ export async function processAepMetadata(
   const database = db();
   const ldEnabled = await isLDEnabled();
 
-  const { updateLDSegmentName, deleteLDSegment } = await import("./launchdarkly");
+  const { updateLDSegmentName, deleteLDSegment, createLDSegment } = await import("./launchdarkly");
 
   for (const aud of segmentsList) {
     if (!aud.id) {
@@ -474,19 +484,38 @@ export async function processAepMetadata(
       const segmentKey = aud.id.replace(/[^a-zA-Z0-9._-]/g, "-").toLowerCase();
 
       if (action === "delete") {
-        // Remove segment from DB (profile_segments cascade-deletes automatically)
-        await database
-          .delete(segments)
-          .where(eq(segments.segmentId, aud.id));
-
-        // Remove from LaunchDarkly
+        // Remove from LaunchDarkly first
         if (ldEnabled) {
-          await deleteLDSegment(segmentKey);
+          const deleted = await deleteLDSegment(segmentKey);
+          if (deleted) {
+            // Remove segment from DB only if LD deletion was successful
+            await database
+              .delete(segments)
+              .where(eq(segments.segmentId, aud.id));
+            console.log(`Deleted segment ${aud.id} from DB and LD`);
+          } else {
+            console.warn(`Skipped DB deletion for segment ${aud.id} due to LD deletion failure.`);
+            errors++;
+          }
+        } else {
+          // If LD is disabled, just delete from DB
+          await database
+            .delete(segments)
+            .where(eq(segments.segmentId, aud.id));
+          console.log(`Deleted segment ${aud.id} from DB`);
         }
+      } else if (action === "create") {
+        // "create" — safely create/upsert in DB
+        await upsertSegment(aud.id, aud.name);
 
-        console.log(`Deleted segment ${aud.id} from DB and LD`);
-      } else {
-        // "create" or "update" — upsert the segment name
+        if (ldEnabled) {
+          const success = await createLDSegment(segmentKey, aud.name, aud.description);
+          if (success) {
+            await updateLDSynced(aud.id, true);
+          }
+        }
+      } else if (action === "update") {
+        // "update" — safely update/upsert in DB
         await upsertSegment(aud.id, aud.name);
 
         if (ldEnabled) {

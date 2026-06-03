@@ -7,12 +7,18 @@
  */
 
 import type { Profile } from "@/db/schema";
+import { db } from "@/db";
+import { segments } from "@/db/schema";
+import { eq } from "drizzle-orm";
 
 interface SegmentChange {
   segmentId: string;
   segmentName?: string;
   status: string; // "realized", "existing", "exited"
+  ldSynced: boolean;
 }
+
+const verifiedSegmentsCache = new Set<string>();
 
 interface LDConfig {
   apiKey: string;
@@ -58,99 +64,101 @@ function sanitizeSegmentKey(segmentId: string): string {
 
 /**
  * Ensure a segment exists in LaunchDarkly. Auto-creates if it doesn't exist.
+ * Used during profile event ingestion to handle out-of-order deliveries.
  */
 async function ensureLDSegment(
   config: LDConfig,
   segmentKey: string,
-  segmentName: string,
-  description?: string,
+  segmentName?: string,
+  ldSynced: boolean = false,
 ): Promise<boolean> {
-  const url = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}/${segmentKey}`;
+  if (verifiedSegmentsCache.has(segmentKey)) return true;
 
-  // Check if segment exists
-  const getRes = await fetch(url, {
-    headers: {
-      Authorization: config.apiKey,
-    },
-  });
-
-  if (getRes.ok) return true;
-
-  if (getRes.status === 404) {
-    // Create the segment
-    const createUrl = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}`;
-    const createRes = await fetch(createUrl, {
-      method: "POST",
-      headers: {
-        Authorization: config.apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        key: segmentKey,
-        name: segmentName || segmentKey,
-        description: description ? `${description} (Auto-synced from AEP)` : `Auto-created from AEP segment: ${segmentName || segmentKey}`,
-        tags: ["aep-sync"],
-      }),
-    });
-
-    if (createRes.ok) {
-      console.log(`Created LD segment: ${segmentKey}`);
-      return true;
-    }
-
-    const error = await createRes.text();
-    console.error(`Failed to create LD segment ${segmentKey}: ${error}`);
-    return false;
+  if (ldSynced) {
+    verifiedSegmentsCache.add(segmentKey);
+    return true;
   }
 
-  console.error(`Failed to check LD segment ${segmentKey}: ${getRes.status}`);
+  // Create the segment if not synced
+  const createUrl = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}`;
+  const createRes = await fetch(createUrl, {
+    method: "POST",
+    headers: {
+      Authorization: config.apiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      key: segmentKey,
+      name: segmentName || segmentKey,
+      description: `Auto-created from AEP event stream: ${segmentName || segmentKey}`,
+      tags: ["aep-sync"],
+    }),
+  });
+
+  if (createRes.ok || createRes.status === 409) {
+    if (createRes.ok) console.log(`Created LD segment: ${segmentKey}`);
+    verifiedSegmentsCache.add(segmentKey);
+
+    // Fire-and-forget DB update to permanently mark as synced
+    db()
+      .update(segments)
+      .set({ ldSynced: true })
+      .where(eq(segments.ldSegmentKey, segmentKey))
+      .execute()
+      .catch((err) => console.error(`Failed to update DB ldSynced flag for ${segmentKey}:`, err));
+
+    return true;
+  }
+
+  const error = await createRes.text();
+  console.error(`Failed to create LD segment ${segmentKey}: ${error}`);
   return false;
 }
 
 /**
- * Update a profile's membership in an LD segment.
+ * Create a segment in LaunchDarkly.
+ * Called when an audience is mapped to the destination in AEP.
  */
-async function updateSegmentMembership(
-  config: LDConfig,
+export async function createLDSegment(
   segmentKey: string,
-  contextKey: string,
-  action: "add" | "remove",
+  segmentName: string,
+  description?: string,
 ): Promise<boolean> {
-  const url = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}/${segmentKey}`;
+  const config = getLDConfig();
+  if (!config) return false;
 
-  const instruction =
-    action === "add"
-      ? {
-          kind: "addIncludedTargets",
-          contextKind: "user",
-          values: [contextKey],
-        }
-      : {
-          kind: "removeIncludedTargets",
-          contextKind: "user",
-          values: [contextKey],
-        };
-
-  const res = await fetch(url, {
-    method: "PATCH",
+  const createUrl = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}`;
+  const createRes = await fetch(createUrl, {
+    method: "POST",
     headers: {
       Authorization: config.apiKey,
-      "Content-Type": "application/json; domain-model=launchdarkly.semanticpatch",
+      "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      instructions: [instruction],
-      comment: `AEP sync: ${action} context ${contextKey}`,
+      key: segmentKey,
+      name: segmentName || segmentKey,
+      description: description ? `${description} (Auto-synced from AEP)` : `Auto-created from AEP segment: ${segmentName || segmentKey}`,
+      tags: ["aep-sync"],
     }),
   });
 
-  if (res.ok) return true;
+  if (createRes.ok) {
+    console.log(`Created LD segment: ${segmentKey}`);
+    return true;
+  }
 
-  const error = await res.text();
-  console.error(
-    `Failed to ${action} context ${contextKey} in LD segment ${segmentKey}: ${error}`,
-  );
+  // Handle existing segment gracefully
+  if (createRes.status === 409) {
+    console.log(`LD segment ${segmentKey} already exists. Updating name to ensure it is not stuck with a UUID fallback.`);
+    return updateLDSegmentName(segmentKey, segmentName, description);
+  }
+
+  const error = await createRes.text();
+  console.error(`Failed to create LD segment ${segmentKey}: ${error}`);
   return false;
 }
+
+
 
 /**
  * Update the name and description of a segment in LaunchDarkly.
@@ -185,9 +193,10 @@ export async function updateLDSegmentName(
     return true;
   }
 
-  // If 404, it might not exist yet; ensure it exists with the new name and description
+  // If 404, log gracefully
   if (res.status === 404) {
-    return ensureLDSegment(config, segmentKey, segmentName, description);
+    console.warn(`LD segment ${segmentKey} not found for update. Proceeding gracefully.`);
+    return true;
   }
 
   const error = await res.text();
@@ -230,57 +239,8 @@ export async function deleteLDSegment(
 }
 
 /**
- * Forward segment changes for a single profile to LaunchDarkly.
- * Returns the number of successful segment updates.
- */
-export async function forwardToLaunchDarkly(
-  profile: { nbid?: string | null; webTrackerId?: string | null; },
-  segmentChanges: SegmentChange[],
-): Promise<{ forwarded: number; failed: number }> {
-  const config = getLDConfig();
-  if (!config) return { forwarded: 0, failed: 0 };
-
-  const contextKey = resolveLDContextKey(profile);
-  if (!contextKey) {
-    console.warn("Cannot forward to LD: no usable context key for profile");
-    return { forwarded: 0, failed: 0 };
-  }
-
-  let forwarded = 0;
-  let failed = 0;
-
-  // Process segment changes in parallel with concurrency limit
-  const results = await Promise.allSettled(
-    segmentChanges.map(async (change) => {
-      const segmentKey = sanitizeSegmentKey(change.segmentId);
-
-      // Ensure segment exists
-      const exists = await ensureLDSegment(config, segmentKey, change.segmentName);
-      if (!exists) return false;
-
-      // Determine action
-      const action: "add" | "remove" =
-        change.status === "realized" || change.status === "existing"
-          ? "add"
-          : "remove";
-
-      return updateSegmentMembership(config, segmentKey, contextKey, action);
-    }),
-  );
-
-  for (const result of results) {
-    if (result.status === "fulfilled" && result.value) {
-      forwarded++;
-    } else {
-      failed++;
-    }
-  }
-
-  return { forwarded, failed };
-}
-
-/**
- * Batch forward segment changes for multiple profiles.
+ * Batch forward segment changes for multiple profiles to LaunchDarkly.
+ * Groups operations by segment to drastically reduce API calls.
  */
 export async function batchForwardToLD(
   entries: Array<{
@@ -294,19 +254,106 @@ export async function batchForwardToLD(
   let totalForwarded = 0;
   let totalFailed = 0;
 
-  // Process profiles in parallel
+  // 1. Group operations by segment
+  const segmentMap = new Map<
+    string,
+    {
+      segmentName?: string;
+      ldSynced: boolean;
+      addKeys: string[];
+      removeKeys: string[];
+    }
+  >();
+
+  for (const entry of entries) {
+    const contextKey = resolveLDContextKey(entry.profile);
+    if (!contextKey) continue;
+
+    for (const change of entry.segmentChanges) {
+      const segmentKey = sanitizeSegmentKey(change.segmentId);
+      if (!segmentMap.has(segmentKey)) {
+        segmentMap.set(segmentKey, {
+          segmentName: change.segmentName,
+          ldSynced: change.ldSynced,
+          addKeys: [],
+          removeKeys: [],
+        });
+      }
+
+      const mapEntry = segmentMap.get(segmentKey)!;
+      // Inherit the true value if any profile in the batch has it cached as true
+      if (change.ldSynced) mapEntry.ldSynced = true;
+      if (change.segmentName) mapEntry.segmentName = change.segmentName;
+
+      const action = change.status === "realized" || change.status === "existing" ? "add" : "remove";
+      if (action === "add") {
+        mapEntry.addKeys.push(contextKey);
+      } else {
+        mapEntry.removeKeys.push(contextKey);
+      }
+    }
+  }
+
+  // 2. Dispatch a single PATCH request per segment
   const results = await Promise.allSettled(
-    entries.map(({ profile, segmentChanges }) =>
-      forwardToLaunchDarkly(profile, segmentChanges),
-    ),
+    Array.from(segmentMap.entries()).map(async ([segmentKey, data]) => {
+      // Ensure segment exists
+      const exists = await ensureLDSegment(config, segmentKey, data.segmentName, data.ldSynced);
+      if (!exists) throw new Error(`Segment ${segmentKey} does not exist and could not be created.`);
+
+      const url = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}/${segmentKey}`;
+      const instructions: any[] = [];
+
+      if (data.addKeys.length > 0) {
+        instructions.push({
+          kind: "addIncludedTargets",
+          contextKind: "user",
+          values: data.addKeys,
+        });
+      }
+
+      if (data.removeKeys.length > 0) {
+        instructions.push({
+          kind: "removeIncludedTargets",
+          contextKind: "user",
+          values: data.removeKeys,
+        });
+      }
+
+      if (instructions.length === 0) return { forwarded: 0 };
+
+      const res = await fetch(url, {
+        method: "PATCH",
+        headers: {
+          Authorization: config.apiKey,
+          "Content-Type": "application/json; domain-model=launchdarkly.semanticpatch",
+        },
+        body: JSON.stringify({
+          instructions,
+          comment: `AEP sync: batched update for ${data.addKeys.length} adds, ${data.removeKeys.length} removes`,
+        }),
+      });
+
+      if (!res.ok) {
+        const error = await res.text();
+        throw new Error(`Failed to update LD segment ${segmentKey}: ${error}`);
+      }
+
+      return { forwarded: data.addKeys.length + data.removeKeys.length };
+    }),
   );
 
-  for (const result of results) {
+  // 3. Tally results
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    const segmentData = Array.from(segmentMap.values())[i];
+    const profileCount = segmentData.addKeys.length + segmentData.removeKeys.length;
+
     if (result.status === "fulfilled") {
       totalForwarded += result.value.forwarded;
-      totalFailed += result.value.failed;
     } else {
-      totalFailed++;
+      console.error(result.reason);
+      totalFailed += profileCount;
     }
   }
 
