@@ -24,7 +24,7 @@ The destination server configuration defines where AEP should send the data and 
   "urlBasedDestination": {
     "url": {
       "templatingStrategy": "PEBBLE_V1",
-      "value": "https://<YOUR_APP_DOMAIN>/api/aep/events"
+      "value": "https://aep-destination-sdk-test-app.vercel.app/api/aep/events"
     }
   },
   "httpTemplate": {
@@ -38,7 +38,28 @@ The destination server configuration defines where AEP should send the data and 
 }
 ```
 > [!NOTE]
-> The `requestBody` template above uses Pebble templating to map AEP's internal profile structure exactly to the `AEPPayload` interface expected by your `route.ts`.
+> The `requestBody` template above uses Pebble templating to map AEP's internal profile structure exactly to the `AEPPayload` interface expected by your `route.ts`. 
+> 
+> **Sample resulting payload sent to `/api/aep/events`**:
+> ```json
+> {
+>   "profiles": [
+>     {
+>       "identities": {
+>         "CIFHash": [ "test-cifhash-123" ],
+>         "WebTrackerID": [ "test-web-456" ],
+>         "ECID": [ "11111111111" ]
+>       },
+>       "segments": {
+>         "segment-uuid-1234": {
+>           "status": "realized",
+>           "lastQualificationTime": "2026-06-03T10:00:00Z"
+>         }
+>       }
+>     }
+>   ]
+> }
+> ```
 
 ---
 
@@ -56,6 +77,12 @@ This configures the UI representation of the destination and maps the identities
   "destinationServerId": "<DESTINATION_SERVER_ID_FROM_STEP_1>",
   "integrationType": "HTTP_API",
   "category": "CUSTOM",
+  "uiAttributes": {
+    "description": "Streams AEP segment qualifications to TestBank to update LaunchDarkly flags.",
+    "icon": "https://aep-destination-sdk-test-app.vercel.app/favicon.ico",
+    "connectionType": "Server-to-server"
+  },
+  "customerDataFields": [],
   "identityNamespaces": {
     "eligibility": "ANY",
     "namespaces": [
@@ -100,7 +127,7 @@ This configures AEP to push human-readable segment names to our metadata endpoin
     "urlBasedDestination": {
       "url": {
         "templatingStrategy": "PEBBLE_V1",
-        "value": "https://<YOUR_APP_DOMAIN>/api/aep/metadata"
+        "value": "https://aep-destination-sdk-test-app.vercel.app/api/aep/metadata"
       }
     },
     "httpTemplate": {
@@ -114,6 +141,19 @@ This configures AEP to push human-readable segment names to our metadata endpoin
   }
 }
 ```
+
+> [!NOTE]
+> **Sample resulting payload sent to `/api/aep/metadata`**:
+> ```json
+> {
+>   "audiences": [
+>     {
+>       "id": "segment-uuid-1234",
+>       "name": "High-Value Home Loan Prospects"
+>     }
+>   ]
+> }
+> ```
 
 ---
 
@@ -129,7 +169,7 @@ Before publishing, use the Testing API to simulate an AEP payload and verify you
   "profiles": [
     {
       "identityMap": {
-        "NBID": [{ "id": "test-nbid-123" }]
+        "CIFHash": [{ "id": "test-cifhash-123" }]
       },
       "segmentMembership": {
         "ups": {
