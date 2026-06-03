@@ -70,7 +70,6 @@ async function ensureLDSegment(
   const getRes = await fetch(url, {
     headers: {
       Authorization: config.apiKey,
-      "LD-API-Version": "20220603",
     },
   });
 
@@ -84,7 +83,6 @@ async function ensureLDSegment(
       headers: {
         Authorization: config.apiKey,
         "Content-Type": "application/json",
-        "LD-API-Version": "20220603",
       },
       body: JSON.stringify({
         key: segmentKey,
@@ -137,7 +135,6 @@ async function updateSegmentMembership(
     headers: {
       Authorization: config.apiKey,
       "Content-Type": "application/json; domain-model=launchdarkly.semanticpatch",
-      "LD-API-Version": "20220603",
     },
     body: JSON.stringify({
       instructions: [instruction],
@@ -175,7 +172,6 @@ export async function updateLDSegmentName(
     headers: {
       Authorization: config.apiKey,
       "Content-Type": "application/json; domain-model=launchdarkly.semanticpatch",
-      "LD-API-Version": "20220603",
     },
     body: JSON.stringify({
       instructions: [
@@ -217,7 +213,6 @@ export async function deleteLDSegment(
     method: "DELETE",
     headers: {
       Authorization: config.apiKey,
-      "LD-API-Version": "20220603",
     },
   });
 
