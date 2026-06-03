@@ -33,7 +33,7 @@ The destination server configuration defines where AEP should send the data (the
 **Payload:**
 ```json
 {
-  "name": "TestBank App Server",
+  "name": "CBA Custom Destination (CIF & WebTracker) - Non Prod",
   "destinationServerType": "URL_BASED",
   "urlBasedDestination": {
     "url": {
@@ -87,7 +87,7 @@ This configures AEP to push human-readable segment names to our metadata endpoin
 ```json
 {
   "metadataTemplate": {
-    "name": "TestBank Audience Metadata",
+    "name": "CBA Custom Destination (CIF & WebTracker) - Non Prod - Audience Metadata",
     "create": {
       "url": "https://aep-destination-sdk-test-app.vercel.app/api/aep/metadata",
       "httpMethod": "POST",
@@ -117,7 +117,7 @@ This configures AEP to push human-readable segment names to our metadata endpoin
       "responseErrorFields": [
         {
           "name": "message",
-          "value": "{{error.message}}"
+          "value": "{{root}}"
         }
       ]
     },
@@ -150,7 +150,7 @@ This configures AEP to push human-readable segment names to our metadata endpoin
       "responseErrorFields": [
         {
           "name": "message",
-          "value": "{{error.message}}"
+          "value": "{{root}}"
         }
       ]
     },
@@ -174,10 +174,16 @@ This configures AEP to push human-readable segment names to our metadata endpoin
           ]
         }
       },
+      "responseFields": [
+        {
+          "name": "{{body.audiences[0].id}}",
+          "value": "externalAudienceId"
+        }
+      ],
       "responseErrorFields": [
         {
           "name": "message",
-          "value": "{{error.message}}"
+          "value": "{{root}}"
         }
       ]
     }
@@ -211,8 +217,8 @@ This is the main configuration — it ties together the server, the audience tem
 **Payload:**
 ```json
 {
-  "name": "TestBank Real-Time LD Integration",
-  "description": "Streams AEP segment qualifications to TestBank to update LaunchDarkly flags.",
+  "name": "CBA Custom Destination (CIF & WebTracker) - Non Prod",
+  "description": "Streams AEP segment qualifications to Test Site for real time integration with LaunchDarkly Testing.",
   "status": "TEST",
   "customerAuthenticationConfigurations": [
     {
