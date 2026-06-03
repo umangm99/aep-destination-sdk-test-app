@@ -22,7 +22,9 @@ export async function GET(request: Request) {
     // Push the processing to the background so the endpoint returns immediately
     after(async () => {
       try {
-        const result = await processPendingLDEvents(25);
+        // Process up to 100 events per cron run. Since they group heavily by segment, 
+        // 100 events will still usually result in only 1-2 LaunchDarkly API calls!
+        const result = await processPendingLDEvents(100);
         console.log(`[Cron] Execution complete. Processed: ${result.processed}, Errors: ${result.errors}`);
       } catch (err) {
         console.error("[Cron] Background task failed:", err);
