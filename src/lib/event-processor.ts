@@ -44,12 +44,7 @@ function extractIdentities(identities: Record<string, string[]>) {
     return entry?.[1]?.[0] || null;
   };
   
-  const getAll = (key: string): string[] => {
-    const entry = Object.entries(identities).find(
-      ([k]) => k.toLowerCase() === key.toLowerCase(),
-    );
-    return entry?.[1] || [];
-  };
+
 
   return {
     cifhash: getFirst("CIFHash"),
@@ -61,8 +56,7 @@ function extractIdentities(identities: Record<string, string[]>) {
  * Resolve or create a profile based on identity hierarchy:
  * 1. If nbid → match on nbid
  * 2. If cifhash → look up nbid from identity_mapping, match on nbid
- * 3. If webTrackerId → match on webTrackerId
- * 4. Else → create new profile with ecid stored for reference
+ * 4. Else → create new profile and insert into mapping
  */
 async function resolveProfile(
   identities: ReturnType<typeof extractIdentities>,
@@ -519,7 +513,10 @@ export async function processAepMetadata(
         await upsertSegment(aud.id, aud.name);
 
         if (ldEnabled) {
-          await updateLDSegmentName(segmentKey, aud.name, aud.description);
+          const success = await updateLDSegmentName(segmentKey, aud.name, aud.description);
+          if (success) {
+            await updateLDSynced(aud.id, true);
+          }
         }
       }
 

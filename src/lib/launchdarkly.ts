@@ -6,7 +6,7 @@
  * CIFHash is NEVER sent to LD — only used for identity_mapping lookups.
  */
 
-import type { Profile } from "@/db/schema";
+
 import { db } from "@/db";
 import { segments } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -144,12 +144,14 @@ export async function createLDSegment(
 
   if (createRes.ok) {
     console.log(`Created LD segment: ${segmentKey}`);
+    verifiedSegmentsCache.add(segmentKey);
     return true;
   }
 
   // Handle existing segment gracefully
   if (createRes.status === 409) {
     console.log(`LD segment ${segmentKey} already exists. Updating name to ensure it is not stuck with a UUID fallback.`);
+    verifiedSegmentsCache.add(segmentKey);
     return updateLDSegmentName(segmentKey, segmentName, description);
   }
 
@@ -196,7 +198,7 @@ export async function updateLDSegmentName(
   // If 404, log gracefully
   if (res.status === 404) {
     console.warn(`LD segment ${segmentKey} not found for update. Proceeding gracefully.`);
-    return true;
+    return false;
   }
 
   const error = await res.text();
@@ -225,11 +227,13 @@ export async function deleteLDSegment(
 
   if (res.ok || res.status === 204) {
     console.log(`Deleted LD segment: ${segmentKey}`);
+    verifiedSegmentsCache.delete(segmentKey);
     return true;
   }
 
   if (res.status === 404) {
     console.log(`LD segment ${segmentKey} already deleted or not found.`);
+    verifiedSegmentsCache.delete(segmentKey);
     return true; // Already gone, consider success
   }
 
@@ -304,19 +308,22 @@ export async function batchForwardToLD(
       const url = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}/${segmentKey}`;
       const instructions: any[] = [];
 
-      if (data.addKeys.length > 0) {
+      const uniqueAddKeys = Array.from(new Set(data.addKeys));
+      const uniqueRemoveKeys = Array.from(new Set(data.removeKeys));
+
+      if (uniqueAddKeys.length > 0) {
         instructions.push({
           kind: "addIncludedTargets",
           contextKind: "user",
-          values: data.addKeys,
+          values: uniqueAddKeys,
         });
       }
 
-      if (data.removeKeys.length > 0) {
+      if (uniqueRemoveKeys.length > 0) {
         instructions.push({
           kind: "removeIncludedTargets",
           contextKind: "user",
-          values: data.removeKeys,
+          values: uniqueRemoveKeys,
         });
       }
 
