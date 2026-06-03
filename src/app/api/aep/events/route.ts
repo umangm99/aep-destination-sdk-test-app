@@ -4,8 +4,7 @@
  */
 
 import { validateBasicAuth } from "@/lib/auth";
-import { processAEPEvent, executeBackgroundLDForwarding, type AEPPayload } from "@/lib/event-processor";
-import { after } from "next/server";
+import { processAEPEvent, type AEPPayload } from "@/lib/event-processor";
 
 export const dynamic = "force-dynamic";
 
@@ -59,18 +58,6 @@ export async function POST(request: Request) {
 
     const result = await processAEPEvent(payload, sourceIp);
 
-    // 4. Schedule LaunchDarkly forwarding in the background
-    if (result.ldTask) {
-      after(async () => {
-        try {
-          await executeBackgroundLDForwarding(result.ldTask!);
-          console.log("[AEP Events] Successfully processed background LD sync.");
-        } catch (err) {
-          console.error("[AEP Events] Background LD sync failed", err);
-        }
-      });
-    }
-
     console.log(`[AEP Events] Successfully queued event processing (EventId: ${result.eventId}).`);
 
     return Response.json({
@@ -78,9 +65,7 @@ export async function POST(request: Request) {
       eventId: result.eventId,
       profilesProcessed: result.profilesProcessed,
       segmentsProcessed: result.segmentsProcessed,
-      message: result.ldTask 
-        ? "Event ingested. LaunchDarkly sync queued in background."
-        : "Event ingested. LaunchDarkly sync not enabled or no segments to forward.",
+      message: "Event ingested. LaunchDarkly sync will be handled by background cron."
     });
   } catch (error) {
     console.error("Error processing AEP event:", error);

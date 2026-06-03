@@ -11,7 +11,7 @@ import {
   segments,
   profileSegments,
 } from "@/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { batchForwardToLD, isLDEnabled } from "./launchdarkly";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -433,23 +433,135 @@ export async function processAEPEvent(
 }
 
 /**
- * Executes the LaunchDarkly forwarding in the background.
- * Run this using Next.js after() to prevent blocking the response.
+ * Process pending LD events from the rawEvents table.
+ * To be called by a cron job periodically.
  */
-export async function executeBackgroundLDForwarding(task: LDForwardingTask) {
+export async function processPendingLDEvents(limit = 50) {
   const database = db();
-  
-  const { totalForwarded, totalFailed } = await batchForwardToLD(task.entries);
+  const ldEnabled = await isLDEnabled();
+  if (!ldEnabled) return { processed: 0, errors: 0 };
 
-  // Mark event as LD forwarded if completely successful
-  if (totalForwarded > 0 && totalFailed === 0) {
-    await database
-      .update(rawEvents)
-      .set({ ldForwarded: true })
-      .where(eq(rawEvents.id, task.eventId));
+  // Fetch pending events
+  const pendingEvents = await database
+    .select()
+    .from(rawEvents)
+    .where(eq(rawEvents.ldForwarded, false))
+    .orderBy(rawEvents.receivedAt)
+    .limit(limit);
+
+  let processedCount = 0;
+  let errorCount = 0;
+
+  for (const event of pendingEvents) {
+    try {
+      const payload = event.payload as unknown as AEPPayload;
+      const ldEntries: LDForwardingTask["entries"] = [];
+
+      for (const aepProfile of payload.profiles || []) {
+        const identities = extractIdentities(aepProfile.identities || {});
+        let resolvedProfile = null;
+
+        // Reconstruct canonical identity
+        if (identities.cifhash) {
+          const mapping = await database
+            .select()
+            .from(identityMapping)
+            .where(eq(identityMapping.cifhash, identities.cifhash))
+            .limit(1);
+          if (mapping.length > 0) {
+            const p = await database
+              .select()
+              .from(profiles)
+              .where(eq(profiles.nbid, mapping[0].nbid))
+              .limit(1);
+            if (p.length > 0) resolvedProfile = p[0];
+          }
+        }
+
+        if (!resolvedProfile && identities.webTrackerId) {
+          const p = await database
+            .select()
+            .from(profiles)
+            .where(eq(profiles.webTrackerId, identities.webTrackerId))
+            .limit(1);
+          if (p.length > 0) resolvedProfile = p[0];
+        }
+
+        if (!resolvedProfile) {
+          // If profile wasn't created for some reason, skip LD forwarding for it
+          continue;
+        }
+
+        const segmentChanges: Array<{
+          segmentId: string;
+          segmentName?: string;
+          status: string;
+          ldSynced: boolean;
+        }> = [];
+
+        for (const [segId, segData] of Object.entries(aepProfile.segments || {})) {
+          const segDb = await database
+            .select()
+            .from(segments)
+            .where(eq(segments.segmentId, segId))
+            .limit(1);
+
+          if (segDb.length === 0) continue;
+
+          const ldSynced = segDb[0].ldSynced;
+          const segmentName = segDb[0].segmentName || undefined;
+
+          segmentChanges.push({
+            segmentId: segId,
+            segmentName,
+            status: segData.status,
+            ldSynced,
+          });
+        }
+
+        if (segmentChanges.length > 0) {
+          ldEntries.push({
+            profile: {
+              nbid: resolvedProfile.nbid,
+              webTrackerId: resolvedProfile.webTrackerId,
+            },
+            segmentChanges,
+          });
+        }
+      }
+
+      if (ldEntries.length > 0) {
+        const { totalFailed } = await batchForwardToLD(ldEntries);
+        
+        // Mark event as LD forwarded if completely successful
+        if (totalFailed === 0) {
+          await database
+            .update(rawEvents)
+            .set({ ldForwarded: true })
+            .where(eq(rawEvents.id, event.id));
+          processedCount++;
+        } else {
+          errorCount++;
+        }
+      } else {
+        // Nothing to forward (e.g. all stale), mark as done
+        await database
+          .update(rawEvents)
+          .set({ ldForwarded: true })
+          .where(eq(rawEvents.id, event.id));
+        processedCount++;
+      }
+
+      // Add a 2-second delay between processing events to pace outbound traffic
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      
+    } catch (err) {
+      console.error(`Error processing pending event ${event.id}:`, err);
+      errorCount++;
+    }
   }
-  
-  console.log(`Background LD sync complete. Forwarded: ${totalForwarded}, Failed: ${totalFailed}`);
+
+  return { processed: processedCount, errors: errorCount };
 }
 
 /**

@@ -298,62 +298,77 @@ export async function batchForwardToLD(
     }
   }
 
-  // 2. Dispatch a single PATCH request per segment
-  const results = await Promise.allSettled(
-    Array.from(segmentMap.entries()).map(async ([segmentKey, data]) => {
-      // Ensure segment exists
-      const exists = await ensureLDSegment(config, segmentKey, data.segmentName, data.ldSynced);
-      if (!exists) throw new Error(`Segment ${segmentKey} does not exist and could not be created.`);
+  // 2. Dispatch PATCH requests in chunks to respect rate limits (max 15/sec)
+  const segmentEntries = Array.from(segmentMap.entries());
+  const chunkSize = 15;
+  const results: PromiseSettledResult<{ forwarded: number }>[] = [];
 
-      const url = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}/${segmentKey}`;
-      const instructions: any[] = [];
+  for (let i = 0; i < segmentEntries.length; i += chunkSize) {
+    const chunk = segmentEntries.slice(i, i + chunkSize);
+    
+    const chunkResults = await Promise.allSettled(
+      chunk.map(async ([segmentKey, data]) => {
+        // Ensure segment exists
+        const exists = await ensureLDSegment(config, segmentKey, data.segmentName, data.ldSynced);
+        if (!exists) throw new Error(`Segment ${segmentKey} does not exist and could not be created.`);
 
-      const uniqueAddKeys = Array.from(new Set(data.addKeys));
-      const uniqueRemoveKeys = Array.from(new Set(data.removeKeys));
+        const url = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}/${segmentKey}`;
+        const instructions: any[] = [];
 
-      if (uniqueAddKeys.length > 0) {
-        instructions.push({
-          kind: "addIncludedTargets",
-          contextKind: "user",
-          values: uniqueAddKeys,
+        const uniqueAddKeys = Array.from(new Set(data.addKeys));
+        const uniqueRemoveKeys = Array.from(new Set(data.removeKeys));
+
+        if (uniqueAddKeys.length > 0) {
+          instructions.push({
+            kind: "addIncludedTargets",
+            contextKind: "user",
+            values: uniqueAddKeys,
+          });
+        }
+
+        if (uniqueRemoveKeys.length > 0) {
+          instructions.push({
+            kind: "removeIncludedTargets",
+            contextKind: "user",
+            values: uniqueRemoveKeys,
+          });
+        }
+
+        if (instructions.length === 0) return { forwarded: 0 };
+
+        const res = await fetch(url, {
+          method: "PATCH",
+          headers: {
+            Authorization: config.apiKey,
+            "Content-Type": "application/json; domain-model=launchdarkly.semanticpatch",
+          },
+          body: JSON.stringify({
+            instructions,
+            comment: `AEP sync: batched update for ${data.addKeys.length} adds, ${data.removeKeys.length} removes`,
+          }),
         });
-      }
 
-      if (uniqueRemoveKeys.length > 0) {
-        instructions.push({
-          kind: "removeIncludedTargets",
-          contextKind: "user",
-          values: uniqueRemoveKeys,
-        });
-      }
+        if (!res.ok) {
+          const error = await res.text();
+          throw new Error(`Failed to update LD segment ${segmentKey}: ${error}`);
+        }
 
-      if (instructions.length === 0) return { forwarded: 0 };
+        return { forwarded: data.addKeys.length + data.removeKeys.length };
+      })
+    );
 
-      const res = await fetch(url, {
-        method: "PATCH",
-        headers: {
-          Authorization: config.apiKey,
-          "Content-Type": "application/json; domain-model=launchdarkly.semanticpatch",
-        },
-        body: JSON.stringify({
-          instructions,
-          comment: `AEP sync: batched update for ${data.addKeys.length} adds, ${data.removeKeys.length} removes`,
-        }),
-      });
+    results.push(...chunkResults);
 
-      if (!res.ok) {
-        const error = await res.text();
-        throw new Error(`Failed to update LD segment ${segmentKey}: ${error}`);
-      }
-
-      return { forwarded: data.addKeys.length + data.removeKeys.length };
-    }),
-  );
+    // Apply a 1-second delay if there are more chunks to process
+    if (i + chunkSize < segmentEntries.length) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
 
   // 3. Tally results
   for (let i = 0; i < results.length; i++) {
     const result = results[i];
-    const segmentData = Array.from(segmentMap.values())[i];
+    const segmentData = segmentEntries[i][1];
     const profileCount = segmentData.addKeys.length + segmentData.removeKeys.length;
 
     if (result.status === "fulfilled") {
