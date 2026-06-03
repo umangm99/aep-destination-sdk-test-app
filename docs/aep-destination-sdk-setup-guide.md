@@ -93,10 +93,6 @@ This configures AEP to push human-readable segment names to our metadata endpoin
       "httpMethod": "POST",
       "headers": [
         {
-          "header": "Authorization",
-          "value": "Basic {{authentication.token}}"
-        },
-        {
           "header": "Content-Type",
           "value": "application/json"
         }
@@ -130,10 +126,6 @@ This configures AEP to push human-readable segment names to our metadata endpoin
       "httpMethod": "POST",
       "headers": [
         {
-          "header": "Authorization",
-          "value": "Basic {{authentication.token}}"
-        },
-        {
           "header": "Content-Type",
           "value": "application/json"
         }
@@ -166,10 +158,6 @@ This configures AEP to push human-readable segment names to our metadata endpoin
       "url": "https://aep-destination-sdk-test-app.vercel.app/api/aep/metadata",
       "httpMethod": "POST",
       "headers": [
-        {
-          "header": "Authorization",
-          "value": "Basic {{authentication.token}}"
-        },
         {
           "header": "Content-Type",
           "value": "application/json"

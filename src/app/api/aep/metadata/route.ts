@@ -25,15 +25,9 @@ export async function POST(request: Request) {
   console.log(`[AEP Metadata] Headers:`, Object.fromEntries(request.headers.entries()));
   console.log(`[AEP Metadata] Body:`, rawBody);
 
-  // 1. Validate Basic Auth
-  const auth = validateBasicAuth(request);
-  if (!auth.valid) {
-    console.error(`[AEP Metadata] Auth failed: ${auth.error}`);
-    return Response.json(
-      { error: "Unauthorized", message: auth.error },
-      { status: 401, headers: { "WWW-Authenticate": 'Basic realm="AEP Destination"' } },
-    );
-  }
+  // Note: We are intentionally NOT requiring Basic Auth on this endpoint because AEP's 
+  // built-in authType: BASIC does not expose the credentials to Audience Templates. 
+  // This endpoint only receives segment names (no PII), so it is safe to leave unauthenticated.
 
   // 2. Parse request body
   let payload: AepMetadataPayload;
