@@ -2,6 +2,7 @@ import { processPendingLDEvents } from "@/lib/event-processor";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // Allow function to run for up to 60 seconds (Hobby limit)
 
 export async function GET(request: Request) {
   // Optional: Secure the cron endpoint by verifying an Authorization header
