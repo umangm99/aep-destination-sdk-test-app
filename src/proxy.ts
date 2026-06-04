@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { validateBasicAuth } from "@/lib/auth";
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   // Validate Basic Auth for all incoming requests (UI and API)
   const auth = validateBasicAuth(request);
 
