@@ -63,6 +63,34 @@ function sanitizeSegmentKey(segmentId: string): string {
 }
 
 /**
+ * Wrapper for fetch that handles LaunchDarkly rate limiting (HTTP 429) automatically.
+ */
+async function fetchLD(url: string, options: RequestInit, retries = 3): Promise<Response> {
+  for (let i = 0; i <= retries; i++) {
+    const res = await fetch(url, options);
+    if (res.status === 429) {
+      if (i === retries) return res; // Exhausted retries
+      
+      const resetTime = res.headers.get("x-ratelimit-reset");
+      let delayMs = 1000;
+      if (resetTime) {
+        // X-RateLimit-Reset is in epoch milliseconds
+        const resetMs = parseInt(resetTime, 10);
+        delayMs = Math.max(1000, resetMs - Date.now() + 200);
+      } else {
+        // Fallback to exponential backoff
+        delayMs = Math.pow(2, i) * 1000 + Math.random() * 500; 
+      }
+      console.warn(`[LaunchDarkly Sync] Rate limited (429). Retrying in ${delayMs}ms... (Attempt ${i + 1}/${retries})`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      continue;
+    }
+    return res;
+  }
+  throw new Error("Unreachable fetchLD state");
+}
+
+/**
  * Ensure a segment exists in LaunchDarkly. Auto-creates if it doesn't exist.
  * Used during profile event ingestion to handle out-of-order deliveries.
  */
@@ -81,7 +109,7 @@ async function ensureLDSegment(
 
   // Create the segment if not synced
   const createUrl = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}`;
-  const createRes = await fetch(createUrl, {
+  const createRes = await fetchLD(createUrl, {
     method: "POST",
     headers: {
       Authorization: config.apiKey,
@@ -128,7 +156,7 @@ export async function createLDSegment(
   if (!config) return false;
 
   const createUrl = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}`;
-  const createRes = await fetch(createUrl, {
+  const createRes = await fetchLD(createUrl, {
     method: "POST",
     headers: {
       Authorization: config.apiKey,
@@ -178,7 +206,7 @@ export async function updateLDSegmentName(
   const descToSet = description ? `${description} (Auto-synced from AEP)` : `Auto-synced from AEP: ${segmentName}`;
 
   // Use standard JSON Patch to replace name and description
-  const res = await fetch(url, {
+  const res = await fetchLD(url, {
     method: "PATCH",
     headers: {
       Authorization: config.apiKey,
@@ -218,7 +246,7 @@ export async function deleteLDSegment(
 
   const url = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}/${segmentKey}`;
 
-  const res = await fetch(url, {
+  const res = await fetchLD(url, {
     method: "DELETE",
     headers: {
       Authorization: config.apiKey,
@@ -338,7 +366,7 @@ export async function batchForwardToLD(
       if (instructions.length === 0) {
         results.push({ status: "fulfilled", value: { forwarded: 0 } });
       } else {
-        const res = await fetch(url, {
+        const res = await fetchLD(url, {
           method: "PATCH",
           headers: {
             Authorization: config.apiKey,
@@ -361,9 +389,9 @@ export async function batchForwardToLD(
       results.push({ status: "rejected", reason: err });
     }
 
-    // Apply a safe 200ms delay between segment updates to strictly prevent hitting LD burst rate limits
+    // Apply a safe 1000ms delay between segment updates to strictly prevent hitting LD burst rate limits
     if (i < segmentEntries.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
 
