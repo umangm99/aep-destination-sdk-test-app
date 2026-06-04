@@ -300,7 +300,7 @@ export async function batchForwardToLD(
 
   // 2. Dispatch PATCH requests sequentially to strictly respect LD rate limits
   const segmentEntries = Array.from(segmentMap.entries());
-  const results: Array<{ status: "fulfilled" | "rejected"; value?: { forwarded: number }; reason?: any }> = [];
+  const results: Array<{ status: "fulfilled"; value: { forwarded: number } } | { status: "rejected"; reason: any }> = [];
 
   console.log(`[LaunchDarkly Sync] Processing ${segmentEntries.length} unique segments sequentially...`);
 
