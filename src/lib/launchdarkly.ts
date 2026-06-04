@@ -42,17 +42,6 @@ function getLDConfig(): LDConfig | null {
   return { apiKey, projectKey, environmentKey };
 }
 
-/**
- * Resolve the LD context key for a profile.
- * Fallback chain: nbid → web_tracker_id
- * CIFHash is NOT used as LD key.
- */
-export function resolveLDContextKey(profile: {
-  nbid?: string | null;
-  webTrackerId?: string | null;
-}): string | null {
-  return profile.nbid || profile.webTrackerId || null;
-}
 
 /**
  * Sanitize a string for use as an LD segment key.
@@ -292,14 +281,16 @@ export async function batchForwardToLD(
     {
       segmentName?: string;
       ldSynced: boolean;
-      addKeys: string[];
-      removeKeys: string[];
+      addUserKeys: string[];
+      removeUserKeys: string[];
+      addAccountKeys: string[];
+      removeAccountKeys: string[];
     }
   >();
 
   for (const entry of entries) {
-    const contextKey = resolveLDContextKey(entry.profile);
-    if (!contextKey) continue;
+    const { nbid, webTrackerId } = entry.profile;
+    if (!nbid && !webTrackerId) continue;
 
     for (const change of entry.segmentChanges) {
       const segmentKey = sanitizeSegmentKey(change.segmentId);
@@ -307,8 +298,10 @@ export async function batchForwardToLD(
         segmentMap.set(segmentKey, {
           segmentName: change.segmentName,
           ldSynced: change.ldSynced,
-          addKeys: [],
-          removeKeys: [],
+          addUserKeys: [],
+          removeUserKeys: [],
+          addAccountKeys: [],
+          removeAccountKeys: [],
         });
       }
 
@@ -319,9 +312,11 @@ export async function batchForwardToLD(
 
       const action = change.status === "realized" || change.status === "existing" ? "add" : "remove";
       if (action === "add") {
-        mapEntry.addKeys.push(contextKey);
+        if (webTrackerId) mapEntry.addUserKeys.push(webTrackerId);
+        if (nbid) mapEntry.addAccountKeys.push(nbid);
       } else {
-        mapEntry.removeKeys.push(contextKey);
+        if (webTrackerId) mapEntry.removeUserKeys.push(webTrackerId);
+        if (nbid) mapEntry.removeAccountKeys.push(nbid);
       }
     }
   }
@@ -344,22 +339,40 @@ export async function batchForwardToLD(
       const url = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}/${segmentKey}`;
       const instructions: any[] = [];
 
-      const uniqueAddKeys = Array.from(new Set(data.addKeys));
-      const uniqueRemoveKeys = Array.from(new Set(data.removeKeys));
+      const uniqueAddUserKeys = Array.from(new Set(data.addUserKeys));
+      const uniqueRemoveUserKeys = Array.from(new Set(data.removeUserKeys));
+      const uniqueAddAccountKeys = Array.from(new Set(data.addAccountKeys));
+      const uniqueRemoveAccountKeys = Array.from(new Set(data.removeAccountKeys));
 
-      if (uniqueAddKeys.length > 0) {
+      if (uniqueAddUserKeys.length > 0) {
         instructions.push({
           kind: "addIncludedTargets",
           contextKind: "user",
-          values: uniqueAddKeys,
+          values: uniqueAddUserKeys,
         });
       }
 
-      if (uniqueRemoveKeys.length > 0) {
+      if (uniqueRemoveUserKeys.length > 0) {
         instructions.push({
           kind: "removeIncludedTargets",
           contextKind: "user",
-          values: uniqueRemoveKeys,
+          values: uniqueRemoveUserKeys,
+        });
+      }
+
+      if (uniqueAddAccountKeys.length > 0) {
+        instructions.push({
+          kind: "addIncludedTargets",
+          contextKind: "account",
+          values: uniqueAddAccountKeys,
+        });
+      }
+
+      if (uniqueRemoveAccountKeys.length > 0) {
+        instructions.push({
+          kind: "removeIncludedTargets",
+          contextKind: "account",
+          values: uniqueRemoveAccountKeys,
         });
       }
 
@@ -374,7 +387,7 @@ export async function batchForwardToLD(
           },
           body: JSON.stringify({
             instructions,
-            comment: `AEP sync: batched update for ${data.addKeys.length} adds, ${data.removeKeys.length} removes`,
+            comment: `AEP sync: batched update for ${data.addUserKeys.length + data.addAccountKeys.length} adds, ${data.removeUserKeys.length + data.removeAccountKeys.length} removes`,
           }),
         });
 
@@ -383,7 +396,7 @@ export async function batchForwardToLD(
           throw new Error(`Failed to update LD segment ${segmentKey}: ${error}`);
         }
 
-        results.push({ status: "fulfilled", value: { forwarded: data.addKeys.length + data.removeKeys.length } });
+        results.push({ status: "fulfilled", value: { forwarded: uniqueAddUserKeys.length + uniqueAddAccountKeys.length + uniqueRemoveUserKeys.length + uniqueRemoveAccountKeys.length } });
       }
     } catch (err) {
       results.push({ status: "rejected", reason: err });
@@ -399,7 +412,7 @@ export async function batchForwardToLD(
   for (let i = 0; i < results.length; i++) {
     const result = results[i];
     const segmentData = segmentEntries[i][1];
-    const profileCount = segmentData.addKeys.length + segmentData.removeKeys.length;
+    const profileCount = segmentData.addUserKeys.length + segmentData.addAccountKeys.length + segmentData.removeUserKeys.length + segmentData.removeAccountKeys.length;
 
     if (result.status === "fulfilled") {
       totalForwarded += result.value.forwarded;
