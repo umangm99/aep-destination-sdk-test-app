@@ -106,7 +106,6 @@ async function resolveProfile(
     
     const mockNbid = generateDigits(6);
     const mockCif = generateDigits(7);
-    const mockWebTrackerId = generateDigits(9);
 
     await database.insert(identityMapping).values({
       cifhash: identities.cifhash,
@@ -126,7 +125,7 @@ async function resolveProfile(
         .set({
           nbid: mockNbid,
           cif: mockCif,
-          webTrackerId: identities.webTrackerId || mockWebTrackerId,
+          webTrackerId: identities.webTrackerId || undefined,
           rawIdentities: rawIdentitiesJson,
           lastSeenAt: now,
         })
@@ -142,7 +141,7 @@ async function resolveProfile(
         nbid: mockNbid,
         cifhash: identities.cifhash,
         cif: mockCif,
-        webTrackerId: identities.webTrackerId || mockWebTrackerId,
+        webTrackerId: identities.webTrackerId || undefined,
         isAuthenticated: true,
         rawIdentities: rawIdentitiesJson,
         firstSeenAt: now,
