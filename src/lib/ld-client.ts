@@ -23,7 +23,11 @@ export async function getLDClient(): Promise<LaunchDarkly.LDClient | null> {
     return globalThis.__ldClient;
   }
 
-  const client = LaunchDarkly.init(sdkKey);
+  const client = LaunchDarkly.init(sdkKey, {
+    logger: LaunchDarkly.basicLogger({
+      level: 'warn',
+    }),
+  });
   
   try {
     await client.waitForInitialization({ timeout: 5 });

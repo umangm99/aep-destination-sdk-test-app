@@ -329,7 +329,6 @@ export interface ProcessingResult {
   eventId: number;
   profilesProcessed: number;
   segmentsProcessed: number;
-  ldTask: LDForwardingTask | null; // Passed to background worker
 }
 
 // ─── Main Processor ──────────────────────────────────────────────────────────
@@ -346,7 +345,6 @@ export async function processAEPEvent(
   sourceIp?: string,
 ): Promise<ProcessingResult> {
   const database = db();
-  const ldEnabled = await isLDEnabled();
 
   // 1. Store raw event
   const [rawEvent] = await database
@@ -360,8 +358,6 @@ export async function processAEPEvent(
 
   let profilesProcessed = 0;
   let segmentsProcessed = 0;
-  
-  const ldEntries: LDForwardingTask["entries"] = [];
 
   // 2. Process each profile
   for (const aepProfile of payload.profiles || []) {
@@ -369,21 +365,7 @@ export async function processAEPEvent(
     const profileId = await resolveProfile(identities, aepProfile.identities || {});
     profilesProcessed++;
 
-    // Fetch resolved profile to ensure we pass the canonical NBID to LaunchDarkly
-    const [resolvedProfile] = await database
-      .select({ nbid: profiles.nbid, webTrackerId: profiles.webTrackerId })
-      .from(profiles)
-      .where(eq(profiles.id, profileId))
-      .limit(1);
-
     // 3. Process segment memberships
-    const segmentChanges: Array<{
-      segmentId: string;
-      segmentName?: string;
-      status: string;
-      ldSynced: boolean;
-    }> = [];
-
     for (const [segId, segData] of Object.entries(aepProfile.segments || {})) {
       const segmentDb = await upsertSegment(segId);
       const wasApplied = await upsertProfileSegment(
@@ -394,30 +376,12 @@ export async function processAEPEvent(
       );
       segmentsProcessed++;
 
-      // Only forward to LD if this was actually a newer event (not stale)
-      if (wasApplied) {
-        segmentChanges.push({
-          segmentId: segId,
-          segmentName: segmentDb.segmentName || undefined,
-          status: segData.status,
-          ldSynced: segmentDb.ldSynced,
-        });
-      } else {
+      if (!wasApplied) {
         console.warn(
           `Skipped stale segment update: profile=${profileId} segment=${segId} ` +
           `status=${segData.status} time=${segData.lastQualificationTime}`
         );
       }
-    }
-
-    if (ldEnabled && segmentChanges.length > 0) {
-      ldEntries.push({
-        profile: {
-          nbid: resolvedProfile.nbid,
-          webTrackerId: resolvedProfile.webTrackerId,
-        },
-        segmentChanges,
-      });
     }
   }
 
@@ -428,7 +392,6 @@ export async function processAEPEvent(
     eventId: rawEvent.id,
     profilesProcessed,
     segmentsProcessed,
-    ldTask: ldEnabled && ldEntries.length > 0 ? { eventId: rawEvent.id, entries: ldEntries } : null,
   };
 }
 
