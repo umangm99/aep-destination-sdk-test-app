@@ -462,6 +462,63 @@ export async function processPendingLDEvents(limit = 50) {
   const allLDEntries: LDForwardingTask["entries"] = [];
   const eventsWithLDEntries: number[] = [];
 
+  // --- 1. Pre-Scan and Gather Unique Keys ---
+  const allCifHashes = new Set<string>();
+  const allWebTrackerIds = new Set<string>();
+  const allSegmentIds = new Set<string>();
+
+  for (const event of pendingEvents) {
+    const payload = event.payload as unknown as AEPPayload;
+    for (const aepProfile of payload.profiles || []) {
+      const identities = extractIdentities(aepProfile.identities || {});
+      if (identities.cifhash) allCifHashes.add(identities.cifhash);
+      if (identities.webTrackerId) allWebTrackerIds.add(identities.webTrackerId);
+      for (const segId of Object.keys(aepProfile.segments || {})) {
+        allSegmentIds.add(segId);
+      }
+    }
+  }
+
+  // --- 2. Bulk Fetch from DB into In-Memory Maps ---
+  const identityMap = new Map<string, string>(); // cifhash -> nbid
+  if (allCifHashes.size > 0) {
+    const mappings = await database
+      .select({ cifhash: identityMapping.cifhash, nbid: identityMapping.nbid })
+      .from(identityMapping)
+      .where(inArray(identityMapping.cifhash, Array.from(allCifHashes)));
+    for (const m of mappings) if (m.nbid) identityMap.set(m.cifhash, m.nbid);
+  }
+
+  const profileMapByNbid = new Map<string, { nbid: string | null; webTrackerId: string | null }>();
+  const profileMapByWeb = new Map<string, { nbid: string | null; webTrackerId: string | null }>();
+  
+  const allNbids = new Set<string>(Array.from(identityMap.values()));
+  if (allNbids.size > 0) {
+    const pNbid = await database
+      .select({ nbid: profiles.nbid, webTrackerId: profiles.webTrackerId })
+      .from(profiles)
+      .where(inArray(profiles.nbid, Array.from(allNbids)));
+    for (const p of pNbid) if (p.nbid) profileMapByNbid.set(p.nbid, p);
+  }
+  
+  if (allWebTrackerIds.size > 0) {
+    const pWeb = await database
+      .select({ nbid: profiles.nbid, webTrackerId: profiles.webTrackerId })
+      .from(profiles)
+      .where(inArray(profiles.webTrackerId, Array.from(allWebTrackerIds)));
+    for (const p of pWeb) if (p.webTrackerId) profileMapByWeb.set(p.webTrackerId, p);
+  }
+
+  const segmentMap = new Map<string, { ldSynced: boolean; segmentName: string | null }>();
+  if (allSegmentIds.size > 0) {
+    const segDb = await database
+      .select({ segmentId: segments.segmentId, ldSynced: segments.ldSynced, segmentName: segments.segmentName })
+      .from(segments)
+      .where(inArray(segments.segmentId, Array.from(allSegmentIds)));
+    for (const s of segDb) segmentMap.set(s.segmentId, s);
+  }
+
+  // --- 3. Process Events using In-Memory Maps ---
   for (const event of pendingEvents) {
     try {
       const payload = event.payload as unknown as AEPPayload;
@@ -469,36 +526,23 @@ export async function processPendingLDEvents(limit = 50) {
 
       for (const aepProfile of payload.profiles || []) {
         const identities = extractIdentities(aepProfile.identities || {});
-        let resolvedProfile = null;
+        let resolvedProfile: { nbid: string | null; webTrackerId: string | null } | null = null;
 
-        // Reconstruct canonical identity
+        // In-memory lookup: cifhash -> nbid -> profile
         if (identities.cifhash) {
-          const mapping = await database
-            .select()
-            .from(identityMapping)
-            .where(eq(identityMapping.cifhash, identities.cifhash))
-            .limit(1);
-          if (mapping.length > 0) {
-            const p = await database
-              .select()
-              .from(profiles)
-              .where(eq(profiles.nbid, mapping[0].nbid))
-              .limit(1);
-            if (p.length > 0) resolvedProfile = p[0];
+          const nbid = identityMap.get(identities.cifhash);
+          if (nbid) {
+            resolvedProfile = profileMapByNbid.get(nbid) || null;
           }
         }
 
+        // In-memory lookup: webTrackerId -> profile
         if (!resolvedProfile && identities.webTrackerId) {
-          const p = await database
-            .select()
-            .from(profiles)
-            .where(eq(profiles.webTrackerId, identities.webTrackerId))
-            .limit(1);
-          if (p.length > 0) resolvedProfile = p[0];
+          resolvedProfile = profileMapByWeb.get(identities.webTrackerId) || null;
         }
 
         if (!resolvedProfile) {
-          // If profile wasn't created for some reason, skip LD forwarding for it
+          // If profile wasn't found, skip LD forwarding for it
           continue;
         }
 
@@ -510,22 +554,15 @@ export async function processPendingLDEvents(limit = 50) {
         }> = [];
 
         for (const [segId, segData] of Object.entries(aepProfile.segments || {})) {
-          const segDb = await database
-            .select()
-            .from(segments)
-            .where(eq(segments.segmentId, segId))
-            .limit(1);
-
-          if (segDb.length === 0) continue;
-
-          const ldSynced = segDb[0].ldSynced;
-          const segmentName = segDb[0].segmentName || undefined;
+          // In-memory lookup: segmentId -> segment stats
+          const segInfo = segmentMap.get(segId);
+          if (!segInfo) continue;
 
           segmentChanges.push({
             segmentId: segId,
-            segmentName,
+            segmentName: segInfo.segmentName || undefined,
             status: segData.status,
-            ldSynced,
+            ldSynced: segInfo.ldSynced,
           });
         }
 
