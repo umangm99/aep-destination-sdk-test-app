@@ -298,47 +298,46 @@ export async function batchForwardToLD(
     }
   }
 
-  // 2. Dispatch PATCH requests in chunks to respect rate limits (max 15/sec)
+  // 2. Dispatch PATCH requests sequentially to strictly respect LD rate limits
   const segmentEntries = Array.from(segmentMap.entries());
-  const chunkSize = 15;
-  const results: PromiseSettledResult<{ forwarded: number }>[] = [];
+  const results: Array<{ status: "fulfilled" | "rejected"; value?: { forwarded: number }; reason?: any }> = [];
 
-  console.log(`[LaunchDarkly Sync] Processing ${segmentEntries.length} unique segments in chunks of ${chunkSize}...`);
+  console.log(`[LaunchDarkly Sync] Processing ${segmentEntries.length} unique segments sequentially...`);
 
-  for (let i = 0; i < segmentEntries.length; i += chunkSize) {
-    console.log(`[LaunchDarkly Sync] Processing chunk ${Math.floor(i / chunkSize) + 1} of ${Math.ceil(segmentEntries.length / chunkSize)}...`);
-    const chunk = segmentEntries.slice(i, i + chunkSize);
+  for (let i = 0; i < segmentEntries.length; i++) {
+    const [segmentKey, data] = segmentEntries[i];
+    console.log(`[LaunchDarkly Sync] Updating segment ${i + 1}/${segmentEntries.length}: ${segmentKey}`);
     
-    const chunkResults = await Promise.allSettled(
-      chunk.map(async ([segmentKey, data]) => {
-        // Ensure segment exists
-        const exists = await ensureLDSegment(config, segmentKey, data.segmentName, data.ldSynced);
-        if (!exists) throw new Error(`Segment ${segmentKey} does not exist and could not be created.`);
+    try {
+      // Ensure segment exists
+      const exists = await ensureLDSegment(config, segmentKey, data.segmentName, data.ldSynced);
+      if (!exists) throw new Error(`Segment ${segmentKey} does not exist and could not be created.`);
 
-        const url = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}/${segmentKey}`;
-        const instructions: any[] = [];
+      const url = `${LD_API_BASE}/segments/${config.projectKey}/${config.environmentKey}/${segmentKey}`;
+      const instructions: any[] = [];
 
-        const uniqueAddKeys = Array.from(new Set(data.addKeys));
-        const uniqueRemoveKeys = Array.from(new Set(data.removeKeys));
+      const uniqueAddKeys = Array.from(new Set(data.addKeys));
+      const uniqueRemoveKeys = Array.from(new Set(data.removeKeys));
 
-        if (uniqueAddKeys.length > 0) {
-          instructions.push({
-            kind: "addIncludedTargets",
-            contextKind: "user",
-            values: uniqueAddKeys,
-          });
-        }
+      if (uniqueAddKeys.length > 0) {
+        instructions.push({
+          kind: "addIncludedTargets",
+          contextKind: "user",
+          values: uniqueAddKeys,
+        });
+      }
 
-        if (uniqueRemoveKeys.length > 0) {
-          instructions.push({
-            kind: "removeIncludedTargets",
-            contextKind: "user",
-            values: uniqueRemoveKeys,
-          });
-        }
+      if (uniqueRemoveKeys.length > 0) {
+        instructions.push({
+          kind: "removeIncludedTargets",
+          contextKind: "user",
+          values: uniqueRemoveKeys,
+        });
+      }
 
-        if (instructions.length === 0) return { forwarded: 0 };
-
+      if (instructions.length === 0) {
+        results.push({ status: "fulfilled", value: { forwarded: 0 } });
+      } else {
         const res = await fetch(url, {
           method: "PATCH",
           headers: {
@@ -356,15 +355,15 @@ export async function batchForwardToLD(
           throw new Error(`Failed to update LD segment ${segmentKey}: ${error}`);
         }
 
-        return { forwarded: data.addKeys.length + data.removeKeys.length };
-      })
-    );
+        results.push({ status: "fulfilled", value: { forwarded: data.addKeys.length + data.removeKeys.length } });
+      }
+    } catch (err) {
+      results.push({ status: "rejected", reason: err });
+    }
 
-    results.push(...chunkResults);
-
-    // Apply a 1-second delay if there are more chunks to process
-    if (i + chunkSize < segmentEntries.length) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Apply a safe 200ms delay between segment updates to strictly prevent hitting LD burst rate limits
+    if (i < segmentEntries.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
     }
   }
 
