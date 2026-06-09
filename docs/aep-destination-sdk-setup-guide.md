@@ -263,10 +263,19 @@ This is the main configuration — it ties together the server, the audience tem
     "mapExperiencePlatformSegmentName": true,
     "mapUserInput": false
   },
-  "aggregation": {
-    "aggregationType": "BEST_EFFORT",
-    "bestEffortAggregation": {
-      "maxUsersPerRequest": 10
+  "aggregation":{
+    "aggregationType":"CONFIGURABLE_AGGREGATION",
+    "configurableAggregation":{
+        "splitUserById":false,
+        "maxBatchAgeInSecs":301,
+        "maxNumEventsInBatch":1000,
+        "aggregationKey":{
+          "includeSegmentId":false,
+          "includeSegmentStatus":false,
+          "includeIdentity":false,
+          "oneIdentityPerGroup":false,
+          "groups":[]
+        }
     }
   },
   "backfillHistoricalProfileData": true
