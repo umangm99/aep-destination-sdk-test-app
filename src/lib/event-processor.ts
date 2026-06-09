@@ -357,6 +357,27 @@ export async function processAEPEvent(
 
   let profilesProcessed = 0;
   let segmentsProcessed = 0;
+  let hasEligibleSegments = false;
+
+  // 1.5. Pre-fetch all referenced segments to avoid N+1 queries
+  const allSegmentIdsToFetch = new Set<string>();
+  for (const aepProfile of payload.profiles || []) {
+    for (const segId of Object.keys(aepProfile.segments || {})) {
+      allSegmentIdsToFetch.add(segId);
+    }
+  }
+
+  const existingSegmentsMap = new Map<string, number>();
+  if (allSegmentIdsToFetch.size > 0) {
+    const existingSegments = await database
+      .select({ id: segments.id, segmentId: segments.segmentId })
+      .from(segments)
+      .where(inArray(segments.segmentId, Array.from(allSegmentIdsToFetch)));
+
+    for (const seg of existingSegments) {
+      existingSegmentsMap.set(seg.segmentId, seg.id);
+    }
+  }
 
   // 2. Process each profile
   for (const aepProfile of payload.profiles || []) {
@@ -366,10 +387,17 @@ export async function processAEPEvent(
 
     // 3. Process segment memberships
     for (const [segId, segData] of Object.entries(aepProfile.segments || {})) {
-      const segmentDb = await upsertSegment(segId);
+      const segmentDbId = existingSegmentsMap.get(segId);
+
+      if (!segmentDbId) {
+        console.warn(`[Event Processor] Segment ${segId} not found in DB. Skipping membership update.`);
+        continue;
+      }
+
+      hasEligibleSegments = true;
       const wasApplied = await upsertProfileSegment(
         profileId,
-        segmentDb.id,
+        segmentDbId,
         segData.status,
         segData.lastQualificationTime,
       );
@@ -382,6 +410,14 @@ export async function processAEPEvent(
         );
       }
     }
+  }
+
+  // Mark event as ineligible for LD forwarding if no existing segments were found
+  if (!hasEligibleSegments) {
+    await database
+      .update(rawEvents)
+      .set({ ldForwarded: true })
+      .where(eq(rawEvents.id, rawEvent.id));
   }
 
   // Update segment counts
